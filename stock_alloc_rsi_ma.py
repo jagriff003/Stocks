@@ -265,15 +265,15 @@ def calculate_composite_scores(data, rsi_window=14, ma_short=50, ma_long=200, de
         if data[stock].notna().sum() > max(ma_long, zscore_window):  # Ensure sufficient data
             # RSI calculation
             rsi = calculate_rsi(data[stock], rsi_window)
-            rsi_scores[stock] = rsi
+            rsi_scores[stock] = -rsi   # Negative so that the lowest RSI/most oversold gives positive z-score
             
             # MA difference calculation
             ma_diff = calculate_ma_difference(data[stock], ma_short, ma_long)
-            ma_diff_scores[stock] = -ma_diff  # Negative so that 50>200 gives negative z-score
+            ma_diff_scores[stock] = ma_diff  
             
             # MA derivative calculation
             ma_deriv = calculate_ma_derivative(ma_diff, derivative_window)
-            ma_deriv_scores[stock] = ma_deriv
+            ma_deriv_scores[stock] = ma_deriv   
     
     # Save underlying measures before standardization
     underlying_measures = []
@@ -432,12 +432,12 @@ etfs = [
 	'XLC',  # Communication Services Select Sector SPDR Fund
 	'XBI',  # Biotech SPDR ETF
 	'XAR',  # Aerospace & Defense ETF
-	'XOP',  # Oil & Gas Exploration & Production ETF
+	#'XOP',  # Oil & Gas Exploration & Production ETF
 	'XME',  # Metals & Mining ETF
 	'KBE',  # Bank ETF
 	'XHB',  # Homebuilders ETF
 	'VUG',  # Vanguard Growth ETF
-	'DBC',  # Commodities ETF
+	#'DBC',  # Commodities ETF
 	'IAU',  # Gold ETF
 	'TLT',  # Long-Term Treasury ETF
 	'SHY',  # Short-Term Treasury ETF
@@ -445,8 +445,17 @@ etfs = [
 	'VWO',  # Emerging Markets ETF
     'SCZ',  # International small cap
 	'IBIT', # Bitcoin Trust
-	'SVXY', # Volatility Short
+	#'SVXY', # Volatility Short
 	'HYG',  # High Yield Bond ETF
+	# Individual stocks with historically high Sharpe ratios
+	'AAPL', # Apple Inc.
+	'MSFT', # Microsoft Corporation
+	'GOOGL',# Alphabet Inc.
+	'NVDA', # NVIDIA Corporation
+	'AMZN', # Amazon.com Inc.
+	'TSLA', # Tesla Inc.
+	'META', # Meta Platforms Inc.
+	'BRK-B',# Berkshire Hathaway Inc.
 ]
 
 # Download historical data for the ETFs (daily data)
