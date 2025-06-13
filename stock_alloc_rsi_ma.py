@@ -183,7 +183,7 @@ def calculate_performance_metrics(returns_series, is_daily=True):
         volatility = returns_series.std() * np.sqrt(12)
         period_label = f"{len(returns_series)} months"
     
-    risk_free_rate = 0.02  # Assume 2% annual risk-free rate
+    risk_free_rate = 0.045  # choose a number corresponding roughly to the 10 year treasury yield
     sharpe_ratio = (annualized_return - risk_free_rate) / volatility if volatility > 0 else 0
     max_drawdown = ((1 + returns_series).cumprod() / (1 + returns_series).cumprod().expanding().max() - 1).min()
     
@@ -219,7 +219,7 @@ def calculate_individual_stock_performance(data):
             years = len(daily_returns) / trading_days_per_year
             cagr = (1 + cumulative_return) ** (1 / years) - 1
             volatility = daily_returns.std() * np.sqrt(trading_days_per_year)
-            risk_free_rate = 0.02  # Assume 2% annual risk-free rate
+            risk_free_rate = 0.045  # choose a number corresponding roughly to the 10 year treasury yield
             sharpe_ratio = (cagr - risk_free_rate) / volatility if volatility > 0 else 0
             
             # Calculate max drawdown
@@ -456,6 +456,9 @@ etfs = [
 	'TSLA', # Tesla Inc.
 	'META', # Meta Platforms Inc.
 	'BRK-B',# Berkshire Hathaway Inc.
+    # Up and comers in the 11-20 market cap range with high CAGR
+    'V',    # Visa (financial)
+    'LLY',  # Eli Lilly (pharma)
 ]
 
 # Download historical data for the ETFs (daily data)
