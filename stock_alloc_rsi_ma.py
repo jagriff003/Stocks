@@ -462,7 +462,7 @@ etfs = [
 ]
 
 # Download historical data for the ETFs (daily data)
-data = yf.download(etfs, start='2010-01-01', end=datetime.now().strftime('%Y-%m-%d'), interval='1d')["Close"]
+data = yf.download(etfs, start='2010-01-01', interval='1d')["Close"]  # end=datetime.now().strftime('%Y-%m-%d'), 
 
 # Clean the data - remove stocks with insufficient recent data
 one_year_ago = data.index[-1] - pd.DateOffset(months=12)
