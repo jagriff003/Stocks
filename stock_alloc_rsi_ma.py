@@ -16,8 +16,8 @@ def calculate_rsi(prices, window=14):
     Series: RSI values
     """
     delta = prices.diff()
-    gain = delta.where(delta > 0, 0)
-    loss = -delta.where(delta < 0, 0)
+    gain = delta.where(delta > 0, np.nan)
+    loss = (-delta).where(delta < 0, np.nan)
     
     # Use Wilder's smoothing (exponential moving average with alpha = 1/window)
     alpha = 1.0 / window
@@ -265,7 +265,7 @@ def calculate_composite_scores(data, rsi_window=14, ma_short=50, ma_long=200, de
         if data[stock].notna().sum() > max(ma_long, zscore_window):  # Ensure sufficient data
             # RSI calculation
             rsi = calculate_rsi(data[stock], rsi_window)
-            rsi_scores[stock] = -rsi   # Negative so that the lowest RSI/most oversold gives positive z-score
+            rsi_scores[stock] = rsi   # Keep RSI positive (0-100)
             
             # MA difference calculation
             ma_diff = calculate_ma_difference(data[stock], ma_short, ma_long)
@@ -286,7 +286,7 @@ def calculate_composite_scores(data, rsi_window=14, ma_short=50, ma_long=200, de
                     'Date': date,
                     'Symbol': stock,
                     'Measure': 'RSI',
-                    'Value': rsi_scores.loc[date, stock]
+                    'Value': rsi_scores.loc[date, stock]  # Save actual RSI (0-100)
                 })
             
             # MA Difference measure (before negation)
@@ -295,7 +295,7 @@ def calculate_composite_scores(data, rsi_window=14, ma_short=50, ma_long=200, de
                     'Date': date,
                     'Symbol': stock,
                     'Measure': 'MA_Difference_50_200',
-                    'Value': -ma_diff_scores.loc[date, stock]  # Store original value (before negation)
+                    'Value': ma_diff_scores.loc[date, stock]  # Store actual MA difference (SMA50 - SMA200)
                 })
             
             # MA Derivative measure
@@ -314,7 +314,7 @@ def calculate_composite_scores(data, rsi_window=14, ma_short=50, ma_long=200, de
         print(f"Underlying measures saved to rsi_ma_underlying_measures.csv")
     
     # Convert to cross-sectional z-scores (across stocks for each date)
-    rsi_z = calculate_cross_sectional_zscore(rsi_scores)
+    rsi_z = -calculate_cross_sectional_zscore(rsi_scores)  # Negate z-score so low RSI gives high score
     ma_diff_z = calculate_cross_sectional_zscore(ma_diff_scores)
     ma_deriv_z = calculate_cross_sectional_zscore(ma_deriv_scores)
     
