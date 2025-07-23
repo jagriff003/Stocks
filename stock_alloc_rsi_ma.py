@@ -240,7 +240,43 @@ def calculate_individual_stock_performance(data):
     
     return pd.DataFrame(performance_data)
 
-def calculate_composite_scores(data, rsi_window=14, ma_short=50, ma_long=200, derivative_window=5, zscore_window=252):
+# def calculate_realized_volatility(prices, window=20):
+#     """
+#     Calculate realized volatility using rolling standard deviation of returns.
+#     
+#     Parameters:
+#     prices (Series): Price series
+#     window (int): Rolling window for volatility calculation (default 20)
+#     
+#     Returns:
+#     Series: Realized volatility values
+#     """
+#     returns = prices.pct_change()
+#     volatility = returns.rolling(window=window).std() * np.sqrt(252)  # Annualized
+#     return volatility
+
+def calculate_relative_strength(stock_prices, spy_prices, window=20):
+    """
+    Calculate relative strength vs SPY using rolling return ratios.
+    
+    Parameters:
+    stock_prices (Series): Individual stock price series
+    spy_prices (Series): SPY price series  
+    window (int): Rolling window for relative strength calculation (default 60)
+    
+    Returns:
+    Series: Relative strength values (stock return / SPY return)
+    """
+    # Calculate returns
+    stock_returns = stock_prices.pct_change(window)
+    spy_returns = spy_prices.pct_change(window)
+    
+    # Simple division with small epsilon to prevent division by zero
+    relative_strength = stock_returns / (spy_returns + 1e-8)
+    
+    return relative_strength
+
+def calculate_composite_scores(data, spy_data, rsi_window=14, ma_short=50, ma_long=200, derivative_window=5, zscore_window=252, rel_strength_window=20):
     """
     Calculate composite scores for RSI/MA strategy.
     
@@ -259,6 +295,7 @@ def calculate_composite_scores(data, rsi_window=14, ma_short=50, ma_long=200, de
     rsi_scores = pd.DataFrame(index=data.index, columns=data.columns)
     ma_diff_scores = pd.DataFrame(index=data.index, columns=data.columns)
     ma_deriv_scores = pd.DataFrame(index=data.index, columns=data.columns)
+    rel_strength_scores = pd.DataFrame(index=data.index, columns=data.columns)
     
     # Calculate measures for each stock
     for stock in data.columns:
@@ -274,6 +311,10 @@ def calculate_composite_scores(data, rsi_window=14, ma_short=50, ma_long=200, de
             # MA derivative calculation
             ma_deriv = calculate_ma_derivative(ma_diff, derivative_window)
             ma_deriv_scores[stock] = ma_deriv   
+            
+            # Relative strength vs SPY calculation
+            rel_strength = calculate_relative_strength(data[stock], spy_data, rel_strength_window)
+            rel_strength_scores.loc[:, stock] = rel_strength
     
     # Save underlying measures before standardization
     underlying_measures = []
@@ -306,6 +347,15 @@ def calculate_composite_scores(data, rsi_window=14, ma_short=50, ma_long=200, de
                     'Measure': 'MA_Derivative',
                     'Value': ma_deriv_scores.loc[date, stock]
                 })
+            
+            # Relative Strength measure
+            if not pd.isna(rel_strength_scores.loc[date, stock]):
+                underlying_measures.append({
+                    'Date': date,
+                    'Symbol': stock,
+                    'Measure': 'Relative_Strength_vs_SPY_20d',
+                    'Value': rel_strength_scores.loc[date, stock]
+                })
     
     # Convert to DataFrame and save
     underlying_df = pd.DataFrame(underlying_measures)
@@ -317,11 +367,12 @@ def calculate_composite_scores(data, rsi_window=14, ma_short=50, ma_long=200, de
     rsi_z = -calculate_cross_sectional_zscore(rsi_scores)  # Negate z-score so low RSI gives high score
     ma_diff_z = calculate_cross_sectional_zscore(ma_diff_scores)
     ma_deriv_z = calculate_cross_sectional_zscore(ma_deriv_scores)
+    rel_strength_z = calculate_cross_sectional_zscore(rel_strength_scores)  # Higher relative strength = higher score
     
-    # Calculate composite scores (average of three z-scores)
-    composite_scores = (rsi_z + ma_diff_z + ma_deriv_z) / 3
+    # Calculate composite scores (average of two z-scores - MA only, no relative strength for now)
+    composite_scores = (ma_diff_z + ma_deriv_z) / 2
     
-    return composite_scores, rsi_z, ma_diff_z, ma_deriv_z
+    return composite_scores, rsi_z, ma_diff_z, ma_deriv_z, rel_strength_z
 
 def select_top_stocks_biweekly(composite_scores, data, top_n=4, min_data_days=200, hold_days=14):
     """
@@ -464,23 +515,32 @@ etfs = [
 # Download historical data for the ETFs (daily data)
 data = yf.download(etfs, start='2010-01-01', interval='1d')["Close"]  # end=datetime.now().strftime('%Y-%m-%d'), 
 
+# Download SPY data for relative strength calculations
+spy_data = yf.download('SPY', start='2010-01-01', interval='1d')["Close"]
+
 # Clean the data - remove stocks with insufficient recent data
 one_year_ago = data.index[-1] - pd.DateOffset(months=12)
 recent_data = data.loc[one_year_ago:]
 data = data.dropna(axis=1, thresh=recent_data.shape[0])
 
+# Align SPY data with our stock data
+spy_data = spy_data.reindex(data.index, method='ffill')
+
 print(f"Data shape after cleaning: {data.shape}")
 print(f"Date range: {data.index[0]} to {data.index[-1]}")
+print(f"SPY data aligned: {len(spy_data)} days")
 
-# Calculate composite scores using RSI/MA strategy
-print("\n=== CALCULATING RSI/MA COMPOSITE SCORES ===")
-composite_scores, rsi_z, ma_diff_z, ma_deriv_z = calculate_composite_scores(
+# Calculate composite scores using MA + Relative Strength strategy
+print("\n=== CALCULATING MA-ONLY COMPOSITE SCORES ===")
+composite_scores, rsi_z, ma_diff_z, ma_deriv_z, rel_strength_z = calculate_composite_scores(
     data, 
+    spy_data,
     rsi_window=14, 
     ma_short=50, 
     ma_long=200, 
     derivative_window=5,
-    zscore_window=252
+    zscore_window=252,
+    rel_strength_window=20
 )
 
 # Run biweekly rebalancing strategy
@@ -520,7 +580,7 @@ if not portfolio_performance.empty:
     plt.show()
     
     # Print performance summary
-    print("\n=== RSI/MA STRATEGY BACKTEST RESULTS ===")
+    print("\n=== MA-ONLY STRATEGY BACKTEST RESULTS ===")
     for metric, value in performance_metrics.items():
         print(f"{metric}: {value}")
     
