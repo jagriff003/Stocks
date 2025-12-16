@@ -488,6 +488,7 @@ etfs = [
 	'KBE',  # Bank ETF
 	'XHB',  # Homebuilders ETF
 	'VUG',  # Vanguard Growth ETF
+    'MGV',  # Vanguard Megacap Value ETF
 	#'DBC',  # Commodities ETF
 	'IAU',  # Gold ETF
 	'TLT',  # Long-Term Treasury ETF
@@ -495,6 +496,7 @@ etfs = [
 	'USMV', # Minimum Volatility ETF
 	'VWO',  # Emerging Markets ETF
     'SCZ',  # International small cap
+    'IWM',  # US Small cap
 	'IBIT', # Bitcoin Trust
 	#'SVXY', # Volatility Short
 	'HYG',  # High Yield Bond ETF
@@ -507,6 +509,7 @@ etfs = [
 	'TSLA', # Tesla Inc.
 	'META', # Meta Platforms Inc.
 	'BRK-B',# Berkshire Hathaway Inc.
+    'JPM',  # JP Morgan CHase
     # Up and comers in the 11-20 market cap range with high CAGR
     'V',    # Visa (financial)
     'LLY',  # Eli Lilly (pharma)
