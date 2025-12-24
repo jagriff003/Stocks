@@ -478,46 +478,69 @@ def plot_momentum_portolio(data, top_etfs):
 # 20251223 begin shifting from ETFs (with poor technical signals) to high exposure stocks from ETFs
 #   then rescreen quarterly to ensure appropriate screening and selection
 etfs = [
- 	'LLY',  # XLV   Health Care Select Sector SPDR Fund
-	'WMT',  # XLP   Consumer Staples Select Sector SPDR Fund
-	'WELL', # XLRE  Real Estate Select Sector SPDR Fund
-            #       Note that EQIX and DLR are both part of XLRE
-	'NEE',  # XLU   Utilities Select Sector SPDR Fund
-	'META', # XLC   Communication Services Select Sector SPDR Fund
-            #       GOOG is also concentrated in here
-	'XBI',  # Biotech SPDR ETF -- consider subbing this one out, it is heavily diversified
-	'XAR',  # Aerospace & Defense ETF -- also heavily diversified
-	#'XOP', # Oil & Gas Exploration & Production ETF -- tag for removal
-	'HL',   # XME  Metals & Mining ETF -- heavily diversified
-	'KBE',  # Bank ETF -- heavily diversified
-	'SKY',  # XHB Homebuilders ETF
-	'AAPL', # VUG  Vanguard Growth ETF
-    'NVDA', #       NVIDIA Corporation
-    'MSFT', #       Microsoft Corporation
-    'JPM',  # MGV Vanguard Megacap Value ETF
-	#'DBC',  # Commodities ETF
-	'IAU',  # Gold ETF
+    # Communication Services
+    'GOOGL',# Alphabet (Google)
+    'META', # Meta
+    'NFLX', # Netflix
+    # Consumer Discretionary
+    'AMZN', # Amazon (Broad Retail)
+    'HD',   # Home Depot (Home Improvement)
+    'BKNG', # Booking Holding Inc (Leisure/Travel)
+    'GM',   # General Motors (Auto)
+    # Consumer Staples
+    'COST', # Costco (Merch)
+    'PG',   # Procter & Gamble (Household)
+    'KR',   # Kroger (Food)
+    'ADM',  # Archer-Daniels-Midland (Ag)
+    # Energy
+    'XOM',  # Exxon Mobil
+    'CEG',  # Constellation Energy (Nuclear/Uranium)
+    # Financials
+    'JPM',  # JP Morgan Chase
+    'V',    # Visa (Transaction)
+    'AXP',  # American Express (Consumer)
+    'BX',   # Blackstone (Asset Mgt)
+    'PGR',  # Insurance
+    # Health Care
+ 	'LLY',  # Eli Lilly (Pharma)
+    'JNJ',  # Johnson & Johnson (Pharma)
+    'ABBV', # AbbVie (Biotech)
+    'DHR',  # Danaher (Tools/Services)
+    'BSX',  # Boston Scientific (Equipment)
+    'MCK',  # McKesson (Provider)
+    # Industrials
+    'GE',   # GE Aerospace (Aero & Defense)
+    'CAT',  # Caterpillar (Machinery)
+    'HON',  # Honeywell (Conglomerates)
+    'ADP',  # ADP (HR)
+    'URI',  # United Rentals (Trading & Distribution)
+    'BR',   # Broadridge Financial (data processing)
+    # Information Technology
+    'NVDA', # NVIDIA Corporation (Semiconductors)
+    'TSM',  # TSMC (Semiconductors)
+    'AAPL', # Apple (Hardware)
+    'MSFT', # Microsoft Corporation (Software)
+    'IBM',  # IBM (Services)
+    'APH',  # Amphenol (Components)
+    # Materials
+    'LIN',  # Linde (Chemical)
+    'CRH',  # CRH (Construction)
+    'AA',   # Alcoa (Metals)
+    # Real Estate
+    'WELL', # Welltower (Health Care)
+    'PLD',  # Prologis (Industrial)
+    'CBRE', # CBRE (Services)
+    # Utilities
+    'NEE',  # Nextera (Electric)
+    # Other    
+    'IAU',  # Gold ETF
 	'TLT',  # Long-Term Treasury ETF
 	'SHY',  # Short-Term Treasury ETF
-	'USMV', # Minimum Volatility ETF - heavily diversified
-	'TSM',  # VWO  Emerging Markets ETF
-    'SCZ',  # International small cap - heavily diversified
-    'IWM',  # US Small cap - heavily diversified
 	'IBIT', # Bitcoin Trust
-	#'SVXY', # Volatility Short
 	'HYG',  # High Yield Bond ETF
-	# Individual stocks with historically high Sharpe ratios
-	'GOOGL',# Alphabet Inc.
-	'AMZN', # Amazon.com Inc.
 	'TSLA', # Tesla Inc.
 	'BRK-B',# Berkshire Hathaway Inc.
-    # Up and comers in the 11-20 market cap range with high CAGR
-    'V',    # Visa (financial)
-    'NFLX', # FNGO FANG index (leveraged)
-    'NEM',  # GDMN gold miners
-    'ALAB', # SPRX Spear Alpha (tech)
-    'CEG',  # NLR Nuclear and Uranium (Constellation Energy)
-    'TCEHY', # Tencent SOCL Global Social Media
+    'NEM',  # Newmont
 ]
 
 # Download historical data for the ETFs (daily data)
