@@ -475,44 +475,49 @@ def plot_momentum_portolio(data, top_etfs):
     plt.grid()
     plt.show()
 
+# 20251223 begin shifting from ETFs (with poor technical signals) to high exposure stocks from ETFs
+#   then rescreen quarterly to ensure appropriate screening and selection
 etfs = [
- 	'XLV',  # Health Care Select Sector SPDR Fund
-	'XLP',  # Consumer Staples Select Sector SPDR Fund
-	'XLRE', # Real Estate Select Sector SPDR Fund
-	'XLU',  # Utilities Select Sector SPDR Fund
-	'XLC',  # Communication Services Select Sector SPDR Fund
-	'XBI',  # Biotech SPDR ETF
-	'XAR',  # Aerospace & Defense ETF
-	#'XOP',  # Oil & Gas Exploration & Production ETF
-	'XME',  # Metals & Mining ETF
-	'KBE',  # Bank ETF
-	'XHB',  # Homebuilders ETF
-	'VUG',  # Vanguard Growth ETF
-    'MGV',  # Vanguard Megacap Value ETF
+ 	'LLY',  # XLV   Health Care Select Sector SPDR Fund
+	'WMT',  # XLP   Consumer Staples Select Sector SPDR Fund
+	'WELL', # XLRE  Real Estate Select Sector SPDR Fund
+            #       Note that EQIX and DLR are both part of XLRE
+	'NEE',  # XLU   Utilities Select Sector SPDR Fund
+	'META', # XLC   Communication Services Select Sector SPDR Fund
+            #       GOOG is also concentrated in here
+	'XBI',  # Biotech SPDR ETF -- consider subbing this one out, it is heavily diversified
+	'XAR',  # Aerospace & Defense ETF -- also heavily diversified
+	#'XOP', # Oil & Gas Exploration & Production ETF -- tag for removal
+	'HL',   # XME  Metals & Mining ETF -- heavily diversified
+	'KBE',  # Bank ETF -- heavily diversified
+	'SKY',  # XHB Homebuilders ETF
+	'AAPL', # VUG  Vanguard Growth ETF
+    'NVDA', #       NVIDIA Corporation
+    'MSFT', #       Microsoft Corporation
+    'JPM',  # MGV Vanguard Megacap Value ETF
 	#'DBC',  # Commodities ETF
 	'IAU',  # Gold ETF
 	'TLT',  # Long-Term Treasury ETF
 	'SHY',  # Short-Term Treasury ETF
-	'USMV', # Minimum Volatility ETF
-	'VWO',  # Emerging Markets ETF
-    'SCZ',  # International small cap
-    'IWM',  # US Small cap
+	'USMV', # Minimum Volatility ETF - heavily diversified
+	'TSM',  # VWO  Emerging Markets ETF
+    'SCZ',  # International small cap - heavily diversified
+    'IWM',  # US Small cap - heavily diversified
 	'IBIT', # Bitcoin Trust
 	#'SVXY', # Volatility Short
 	'HYG',  # High Yield Bond ETF
 	# Individual stocks with historically high Sharpe ratios
-	'AAPL', # Apple Inc.
-	'MSFT', # Microsoft Corporation
 	'GOOGL',# Alphabet Inc.
-	'NVDA', # NVIDIA Corporation
 	'AMZN', # Amazon.com Inc.
 	'TSLA', # Tesla Inc.
-	'META', # Meta Platforms Inc.
 	'BRK-B',# Berkshire Hathaway Inc.
-    'JPM',  # JP Morgan CHase
     # Up and comers in the 11-20 market cap range with high CAGR
     'V',    # Visa (financial)
-    'LLY',  # Eli Lilly (pharma)
+    'NFLX', # FNGO FANG index (leveraged)
+    'NEM',  # GDMN gold miners
+    'ALAB', # SPRX Spear Alpha (tech)
+    'CEG',  # NLR Nuclear and Uranium (Constellation Energy)
+    'TCEHY', # Tencent SOCL Global Social Media
 ]
 
 # Download historical data for the ETFs (daily data)
