@@ -658,8 +658,63 @@ print(f"Individual stock performance exported to rsi_ma_individual_stock_perform
 print("\n=== TOP PERFORMING STOCKS (by CAGR) ===")
 print(individual_performance.head(10))
 
+# Calculate correlation matrices for different time periods
+print("\n=== CALCULATING CORRELATION MATRICES ===")
+
+# Calculate returns for correlation analysis
+returns_data = data.pct_change().dropna()
+
+# Define periods
+periods = [20, 50, 200]
+correlation_matrices = {}
+
+for period in periods:
+    if len(returns_data) >= period:
+        # Get most recent period returns
+        recent_returns = returns_data.iloc[-period:]
+
+        # Calculate correlation matrix
+        corr_matrix = recent_returns.corr()
+        correlation_matrices[period] = corr_matrix
+
+        # Export to CSV
+        corr_filename = f'rsi_ma_correlation_{period}d.csv'
+        corr_matrix.to_csv(corr_filename)
+
+        # Calculate and display summary statistics
+        # Get upper triangle of correlation matrix (excluding diagonal)
+        mask = np.triu(np.ones_like(corr_matrix, dtype=bool), k=1)
+        upper_triangle = corr_matrix.where(mask)
+        correlations = upper_triangle.stack()
+
+        print(f"\n=== {period}-DAY CORRELATION MATRIX SUMMARY ===")
+        print(f"Period: Last {period} trading sessions")
+        print(f"Mean correlation: {correlations.mean():.3f}")
+        print(f"Median correlation: {correlations.median():.3f}")
+        print(f"Min correlation: {correlations.min():.3f}")
+        print(f"Max correlation: {correlations.max():.3f}")
+        print(f"Std deviation: {correlations.std():.3f}")
+        print(f"Exported to: {corr_filename}")
+
+        # Show highest correlations
+        print(f"\nTop 10 highest correlations ({period} days):")
+        top_corr = correlations.sort_values(ascending=False).head(10)
+        for (stock1, stock2), corr_val in top_corr.items():
+            print(f"  {stock1} - {stock2}: {corr_val:.3f}")
+
+        # Show lowest correlations
+        print(f"\nTop 10 lowest correlations ({period} days):")
+        low_corr = correlations.sort_values(ascending=True).head(10)
+        for (stock1, stock2), corr_val in low_corr.items():
+            print(f"  {stock1} - {stock2}: {corr_val:.3f}")
+    else:
+        print(f"\nInsufficient data for {period}-day correlation matrix")
+
 print("\n=== RSI/MA STRATEGY SETUP COMPLETE ===")
 print("Files created:")
 print("- rsi_ma_composite_scores.csv: Daily composite scores for all stocks")
-print("- rsi_ma_stock_selections.csv: Top stock selections by date")  
+print("- rsi_ma_stock_selections.csv: Top stock selections by date")
 print("- rsi_ma_individual_stock_performance.csv: Individual stock performance metrics")
+print("- rsi_ma_correlation_20d.csv: 20-day correlation matrix")
+print("- rsi_ma_correlation_50d.csv: 50-day correlation matrix")
+print("- rsi_ma_correlation_200d.csv: 200-day correlation matrix")
