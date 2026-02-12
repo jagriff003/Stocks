@@ -196,24 +196,28 @@ def calculate_performance_metrics(returns_series, is_daily=True):
         'Period': period_label
     }
 
-def calculate_individual_stock_performance(data):
+def calculate_individual_stock_performance(data, recent_years=3):
     """
     Calculate performance metrics for each individual stock/ETF.
-    
+
     Parameters:
     data (DataFrame): Historical price data of ETFs.
-    
+    recent_years (int): Number of recent years to use for volatility-based stops (default 3)
+
     Returns:
     DataFrame: Performance metrics for each stock.
     """
     performance_data = []
-    
+
+    # Calculate cutoff date for recent volatility calculation
+    recent_cutoff = data.index[-1] - pd.DateOffset(years=recent_years)
+
     for stock in data.columns:
-        # Calculate daily returns
+        # Calculate daily returns (full period for performance metrics)
         daily_returns = data[stock].pct_change().dropna()
-        
+
         if len(daily_returns) > 0:
-            # Calculate metrics (daily data)
+            # Calculate metrics (daily data - full period)
             cumulative_return = (1 + daily_returns).prod() - 1
             trading_days_per_year = 252
             years = len(daily_returns) / trading_days_per_year
@@ -221,13 +225,28 @@ def calculate_individual_stock_performance(data):
             volatility = daily_returns.std() * np.sqrt(trading_days_per_year)
             risk_free_rate = 0.045  # choose a number corresponding roughly to the 10 year treasury yield
             sharpe_ratio = (cagr - risk_free_rate) / volatility if volatility > 0 else 0
-            
+
             # Calculate max drawdown
             cumulative_wealth = (1 + daily_returns).cumprod()
             running_max = cumulative_wealth.expanding().max()
             drawdown = (cumulative_wealth / running_max - 1)
             max_drawdown = drawdown.min()
-            
+
+            # Calculate recent volatility for stop loss calculations (last N years)
+            recent_data = data[stock].loc[recent_cutoff:]
+            recent_returns = recent_data.pct_change().dropna()
+
+            if len(recent_returns) > 0:
+                recent_annualized_vol = recent_returns.std() * np.sqrt(trading_days_per_year)
+                daily_vol = recent_annualized_vol / np.sqrt(trading_days_per_year)
+                stop_2x = daily_vol * 2.0
+                stop_2_5x = daily_vol * 2.5
+            else:
+                recent_annualized_vol = volatility  # Fallback to full period
+                daily_vol = recent_annualized_vol / np.sqrt(trading_days_per_year)
+                stop_2x = daily_vol * 2.0
+                stop_2_5x = daily_vol * 2.5
+
             performance_data.append({
                 'Stock': stock,
                 'Total Return': f"{cumulative_return:.2%}",
@@ -235,9 +254,13 @@ def calculate_individual_stock_performance(data):
                 'Volatility': f"{volatility:.2%}",
                 'Sharpe Ratio': f"{sharpe_ratio:.2f}",
                 'Max Drawdown': f"{max_drawdown:.2%}",
-                'Number of Days': len(daily_returns)
+                'Number of Days': len(daily_returns),
+                f'Recent {recent_years}Y Vol': f"{recent_annualized_vol:.2%}",
+                'Daily Vol': f"{daily_vol:.2%}",
+                '2x Stop %': f"{stop_2x:.2%}",
+                '2.5x Stop %': f"{stop_2_5x:.2%}"
             })
-    
+
     return pd.DataFrame(performance_data)
 
 # def calculate_realized_volatility(prices, window=20):
@@ -541,180 +564,182 @@ etfs = [
 	'TSLA', # Tesla Inc.
 	'BRK-B',# Berkshire Hathaway Inc.
     'NEM',  # Newmont
+    'SH',   # Short SPY (monitor and signal to possibly stay out when above -0.1)
 ]
 
-# Download historical data for the ETFs (daily data)
-data = yf.download(etfs, start='2010-01-01', interval='1d')["Close"]  # end=datetime.now().strftime('%Y-%m-%d'), 
+if __name__ == "__main__":
+    # Download historical data for the ETFs (daily data)
+    data = yf.download(etfs, start='2010-01-01', interval='1d')["Close"]  # end=datetime.now().strftime('%Y-%m-%d'),
 
-# Download SPY data for relative strength calculations
-spy_data = yf.download('SPY', start='2010-01-01', interval='1d')["Close"]
+    # Download SPY data for relative strength calculations
+    spy_data = yf.download('SPY', start='2010-01-01', interval='1d')["Close"]
 
-# Clean the data - remove stocks with insufficient recent data
-one_year_ago = data.index[-1] - pd.DateOffset(months=12)
-recent_data = data.loc[one_year_ago:]
-data = data.dropna(axis=1, thresh=recent_data.shape[0])
+    # Clean the data - remove stocks with insufficient recent data
+    one_year_ago = data.index[-1] - pd.DateOffset(months=12)
+    recent_data = data.loc[one_year_ago:]
+    data = data.dropna(axis=1, thresh=recent_data.shape[0])
 
-# Align SPY data with our stock data
-spy_data = spy_data.reindex(data.index, method='ffill')
+    # Align SPY data with our stock data
+    spy_data = spy_data.reindex(data.index, method='ffill')
 
-print(f"Data shape after cleaning: {data.shape}")
-print(f"Date range: {data.index[0]} to {data.index[-1]}")
-print(f"SPY data aligned: {len(spy_data)} days")
+    print(f"Data shape after cleaning: {data.shape}")
+    print(f"Date range: {data.index[0]} to {data.index[-1]}")
+    print(f"SPY data aligned: {len(spy_data)} days")
 
-# Calculate composite scores using MA + Relative Strength strategy
-print("\n=== CALCULATING MA-ONLY COMPOSITE SCORES ===")
-composite_scores, rsi_z, ma_diff_z, ma_deriv_z, rel_strength_z = calculate_composite_scores(
-    data, 
-    spy_data,
-    rsi_window=14, 
-    ma_short=50, 
-    ma_long=200, 
-    derivative_window=5,
-    zscore_window=252,
-    rel_strength_window=20
-)
+    # Calculate composite scores using MA + Relative Strength strategy
+    print("\n=== CALCULATING MA-ONLY COMPOSITE SCORES ===")
+    composite_scores, rsi_z, ma_diff_z, ma_deriv_z, rel_strength_z = calculate_composite_scores(
+        data,
+        spy_data,
+        rsi_window=14,
+        ma_short=50,
+        ma_long=200,
+        derivative_window=5,
+        zscore_window=252,
+        rel_strength_window=20
+    )
 
-# Run biweekly rebalancing strategy
-print("=== RUNNING BIWEEKLY REBALANCING STRATEGY ===")
-portfolio_performance, rebalance_history = select_top_stocks_biweekly(
-    composite_scores, data, top_n=4, min_data_days=200, hold_days=14
-)
+    # Run biweekly rebalancing strategy
+    print("=== RUNNING BIWEEKLY REBALANCING STRATEGY ===")
+    portfolio_performance, rebalance_history = select_top_stocks_biweekly(
+        composite_scores, data, top_n=4, min_data_days=200, hold_days=14
+    )
 
-if not portfolio_performance.empty:
-    # Calculate performance metrics
-    returns = portfolio_performance['Portfolio_Return']
-    performance_metrics = calculate_performance_metrics(returns, is_daily=True)
-    
-    # Create cumulative return series for plotting
-    cumulative_returns = (1 + returns).cumprod()
-    
-    # Plot portfolio performance
-    plt.figure(figsize=(12, 8))
-    
-    # Plot 1: Cumulative returns
-    plt.subplot(2, 1, 1)
-    plt.plot(portfolio_performance['Date'], cumulative_returns, label='RSI/MA Portfolio', linewidth=2)
-    plt.title('RSI/MA Strategy Backtest Results (Biweekly Rebalancing)')
-    plt.ylabel('Cumulative Return')
-    plt.legend()
-    plt.grid(alpha=0.3)
-    
-    # Plot 2: Daily returns
-    plt.subplot(2, 1, 2)
-    plt.plot(portfolio_performance['Date'], returns * 100, alpha=0.7)
-    plt.title('Daily Returns (%)')
-    plt.ylabel('Return (%)')
-    plt.xlabel('Date')
-    plt.grid(alpha=0.3)
-    
-    plt.tight_layout()
-    plt.show()
-    
-    # Print performance summary
-    print("\n=== MA-ONLY STRATEGY BACKTEST RESULTS ===")
-    for metric, value in performance_metrics.items():
-        print(f"{metric}: {value}")
-    
-    # Show recent rebalancing history
-    print(f"\n=== REBALANCING HISTORY (Last 10 rebalances) ===")
-    for rebalance in rebalance_history[-10:]:
-        date_str = rebalance['Date'].strftime('%Y-%m-%d')
-        stocks = ', '.join(rebalance['Selected_Stocks'])
-        print(f"{date_str}: {stocks}")
-    
-    # Export results
-    portfolio_performance.to_csv('rsi_ma_portfolio_performance.csv', index=False)
-    composite_scores.to_csv('rsi_ma_composite_scores.csv')
-    
-    # Export rebalancing history
-    rebalance_df = pd.DataFrame(rebalance_history)
-    rebalance_df.to_csv('rsi_ma_rebalance_history.csv', index=False)
-    
-    print(f"\nResults exported:")
-    print(f"- Portfolio performance: rsi_ma_portfolio_performance.csv")
-    print(f"- Composite scores: rsi_ma_composite_scores.csv")
-    print(f"- Rebalancing history: rsi_ma_rebalance_history.csv")
-    
-    # Show current holdings
-    if len(rebalance_history) > 0:
-        latest_rebalance = rebalance_history[-1]
-        print(f"\n=== CURRENT HOLDINGS (Last rebalance: {latest_rebalance['Date'].strftime('%Y-%m-%d')}) ===")
-        for i, (stock, score) in enumerate(latest_rebalance['Scores'].items()):
-            print(f"{i+1}. {stock}: {score:.3f}")
-        
-        # Plot recent performance of current holdings
-        plot_momentum_portolio(data, latest_rebalance['Selected_Stocks'])
-else:
-    print("Insufficient data for backtesting")
+    if not portfolio_performance.empty:
+        # Calculate performance metrics
+        returns = portfolio_performance['Portfolio_Return']
+        performance_metrics = calculate_performance_metrics(returns, is_daily=True)
 
-# Calculate and export individual stock performance  
-print("\n=== CALCULATING INDIVIDUAL STOCK PERFORMANCE ===")
-individual_performance = calculate_individual_stock_performance(data)
-individual_performance = individual_performance.sort_values('CAGR', ascending=False)
-individual_performance.to_csv('rsi_ma_individual_stock_performance.csv', index=False)
-print(f"Individual stock performance exported to rsi_ma_individual_stock_performance.csv")
+        # Create cumulative return series for plotting
+        cumulative_returns = (1 + returns).cumprod()
 
-# Display top performers
-print("\n=== TOP PERFORMING STOCKS (by CAGR) ===")
-print(individual_performance.head(10))
+        # Plot portfolio performance
+        plt.figure(figsize=(12, 8))
 
-# Calculate correlation matrices for different time periods
-print("\n=== CALCULATING CORRELATION MATRICES ===")
+        # Plot 1: Cumulative returns
+        plt.subplot(2, 1, 1)
+        plt.plot(portfolio_performance['Date'], cumulative_returns, label='RSI/MA Portfolio', linewidth=2)
+        plt.title('RSI/MA Strategy Backtest Results (Biweekly Rebalancing)')
+        plt.ylabel('Cumulative Return')
+        plt.legend()
+        plt.grid(alpha=0.3)
 
-# Calculate returns for correlation analysis
-returns_data = data.pct_change().dropna()
+        # Plot 2: Daily returns
+        plt.subplot(2, 1, 2)
+        plt.plot(portfolio_performance['Date'], returns * 100, alpha=0.7)
+        plt.title('Daily Returns (%)')
+        plt.ylabel('Return (%)')
+        plt.xlabel('Date')
+        plt.grid(alpha=0.3)
 
-# Define periods
-periods = [20, 50, 200]
-correlation_matrices = {}
+        plt.tight_layout()
+        plt.show()
 
-for period in periods:
-    if len(returns_data) >= period:
-        # Get most recent period returns
-        recent_returns = returns_data.iloc[-period:]
+        # Print performance summary
+        print("\n=== MA-ONLY STRATEGY BACKTEST RESULTS ===")
+        for metric, value in performance_metrics.items():
+            print(f"{metric}: {value}")
 
-        # Calculate correlation matrix
-        corr_matrix = recent_returns.corr()
-        correlation_matrices[period] = corr_matrix
+        # Show recent rebalancing history
+        print(f"\n=== REBALANCING HISTORY (Last 10 rebalances) ===")
+        for rebalance in rebalance_history[-10:]:
+            date_str = rebalance['Date'].strftime('%Y-%m-%d')
+            stocks = ', '.join(rebalance['Selected_Stocks'])
+            print(f"{date_str}: {stocks}")
 
-        # Export to CSV
-        corr_filename = f'rsi_ma_correlation_{period}d.csv'
-        corr_matrix.to_csv(corr_filename)
+        # Export results
+        portfolio_performance.to_csv('rsi_ma_portfolio_performance.csv', index=False)
+        composite_scores.to_csv('rsi_ma_composite_scores.csv')
 
-        # Calculate and display summary statistics
-        # Get upper triangle of correlation matrix (excluding diagonal)
-        mask = np.triu(np.ones_like(corr_matrix, dtype=bool), k=1)
-        upper_triangle = corr_matrix.where(mask)
-        correlations = upper_triangle.stack()
+        # Export rebalancing history
+        rebalance_df = pd.DataFrame(rebalance_history)
+        rebalance_df.to_csv('rsi_ma_rebalance_history.csv', index=False)
 
-        print(f"\n=== {period}-DAY CORRELATION MATRIX SUMMARY ===")
-        print(f"Period: Last {period} trading sessions")
-        print(f"Mean correlation: {correlations.mean():.3f}")
-        print(f"Median correlation: {correlations.median():.3f}")
-        print(f"Min correlation: {correlations.min():.3f}")
-        print(f"Max correlation: {correlations.max():.3f}")
-        print(f"Std deviation: {correlations.std():.3f}")
-        print(f"Exported to: {corr_filename}")
+        print(f"\nResults exported:")
+        print(f"- Portfolio performance: rsi_ma_portfolio_performance.csv")
+        print(f"- Composite scores: rsi_ma_composite_scores.csv")
+        print(f"- Rebalancing history: rsi_ma_rebalance_history.csv")
 
-        # Show highest correlations
-        print(f"\nTop 10 highest correlations ({period} days):")
-        top_corr = correlations.sort_values(ascending=False).head(10)
-        for (stock1, stock2), corr_val in top_corr.items():
-            print(f"  {stock1} - {stock2}: {corr_val:.3f}")
+        # Show current holdings
+        if len(rebalance_history) > 0:
+            latest_rebalance = rebalance_history[-1]
+            print(f"\n=== CURRENT HOLDINGS (Last rebalance: {latest_rebalance['Date'].strftime('%Y-%m-%d')}) ===")
+            for i, (stock, score) in enumerate(latest_rebalance['Scores'].items()):
+                print(f"{i+1}. {stock}: {score:.3f}")
 
-        # Show lowest correlations
-        print(f"\nTop 10 lowest correlations ({period} days):")
-        low_corr = correlations.sort_values(ascending=True).head(10)
-        for (stock1, stock2), corr_val in low_corr.items():
-            print(f"  {stock1} - {stock2}: {corr_val:.3f}")
+            # Plot recent performance of current holdings
+            plot_momentum_portolio(data, latest_rebalance['Selected_Stocks'])
     else:
-        print(f"\nInsufficient data for {period}-day correlation matrix")
+        print("Insufficient data for backtesting")
 
-print("\n=== RSI/MA STRATEGY SETUP COMPLETE ===")
-print("Files created:")
-print("- rsi_ma_composite_scores.csv: Daily composite scores for all stocks")
-print("- rsi_ma_stock_selections.csv: Top stock selections by date")
-print("- rsi_ma_individual_stock_performance.csv: Individual stock performance metrics")
-print("- rsi_ma_correlation_20d.csv: 20-day correlation matrix")
-print("- rsi_ma_correlation_50d.csv: 50-day correlation matrix")
-print("- rsi_ma_correlation_200d.csv: 200-day correlation matrix")
+    # Calculate and export individual stock performance
+    print("\n=== CALCULATING INDIVIDUAL STOCK PERFORMANCE ===")
+    individual_performance = calculate_individual_stock_performance(data)
+    individual_performance = individual_performance.sort_values('CAGR', ascending=False)
+    individual_performance.to_csv('rsi_ma_individual_stock_performance.csv', index=False)
+    print(f"Individual stock performance exported to rsi_ma_individual_stock_performance.csv")
+
+    # Display top performers
+    print("\n=== TOP PERFORMING STOCKS (by CAGR) ===")
+    print(individual_performance.head(10))
+
+    # Calculate correlation matrices for different time periods
+    print("\n=== CALCULATING CORRELATION MATRICES ===")
+
+    # Calculate returns for correlation analysis
+    returns_data = data.pct_change().dropna()
+
+    # Define periods
+    periods = [20, 50, 200]
+    correlation_matrices = {}
+
+    for period in periods:
+        if len(returns_data) >= period:
+            # Get most recent period returns
+            recent_returns = returns_data.iloc[-period:]
+
+            # Calculate correlation matrix
+            corr_matrix = recent_returns.corr()
+            correlation_matrices[period] = corr_matrix
+
+            # Export to CSV
+            corr_filename = f'rsi_ma_correlation_{period}d.csv'
+            corr_matrix.to_csv(corr_filename)
+
+            # Calculate and display summary statistics
+            # Get upper triangle of correlation matrix (excluding diagonal)
+            mask = np.triu(np.ones_like(corr_matrix, dtype=bool), k=1)
+            upper_triangle = corr_matrix.where(mask)
+            correlations = upper_triangle.stack()
+
+            print(f"\n=== {period}-DAY CORRELATION MATRIX SUMMARY ===")
+            print(f"Period: Last {period} trading sessions")
+            print(f"Mean correlation: {correlations.mean():.3f}")
+            print(f"Median correlation: {correlations.median():.3f}")
+            print(f"Min correlation: {correlations.min():.3f}")
+            print(f"Max correlation: {correlations.max():.3f}")
+            print(f"Std deviation: {correlations.std():.3f}")
+            print(f"Exported to: {corr_filename}")
+
+            # Show highest correlations
+            print(f"\nTop 10 highest correlations ({period} days):")
+            top_corr = correlations.sort_values(ascending=False).head(10)
+            for (stock1, stock2), corr_val in top_corr.items():
+                print(f"  {stock1} - {stock2}: {corr_val:.3f}")
+
+            # Show lowest correlations
+            print(f"\nTop 10 lowest correlations ({period} days):")
+            low_corr = correlations.sort_values(ascending=True).head(10)
+            for (stock1, stock2), corr_val in low_corr.items():
+                print(f"  {stock1} - {stock2}: {corr_val:.3f}")
+        else:
+            print(f"\nInsufficient data for {period}-day correlation matrix")
+
+    print("\n=== RSI/MA STRATEGY SETUP COMPLETE ===")
+    print("Files created:")
+    print("- rsi_ma_composite_scores.csv: Daily composite scores for all stocks")
+    print("- rsi_ma_stock_selections.csv: Top stock selections by date")
+    print("- rsi_ma_individual_stock_performance.csv: Individual stock performance metrics")
+    print("- rsi_ma_correlation_20d.csv: 20-day correlation matrix")
+    print("- rsi_ma_correlation_50d.csv: 50-day correlation matrix")
+    print("- rsi_ma_correlation_200d.csv: 200-day correlation matrix")
