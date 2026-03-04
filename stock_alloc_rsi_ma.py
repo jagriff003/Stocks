@@ -299,18 +299,21 @@ def calculate_relative_strength(stock_prices, spy_prices, window=20):
     
     return relative_strength
 
-def calculate_composite_scores(data, spy_data, rsi_window=14, ma_short=50, ma_long=200, derivative_window=5, zscore_window=252, rel_strength_window=20):
+def calculate_composite_scores(data, spy_data, rsi_window=14, ma_short=50, ma_long=200, derivative_window=5, zscore_window=252, rel_strength_window=20, zscore_method='cross_sectional', save_underlying=True):
     """
     Calculate composite scores for RSI/MA strategy.
-    
+
     Parameters:
     data (DataFrame): Historical price data
     rsi_window (int): RSI calculation window
     ma_short (int): Short MA window
-    ma_long (int): Long MA window  
+    ma_long (int): Long MA window
     derivative_window (int): Window for derivative calculation
     zscore_window (int): Window for z-score calculation
-    
+    zscore_method (str): 'cross_sectional' (normalize across stocks per day) or
+                         'rolling' (normalize each stock vs its own zscore_window-day history)
+    save_underlying (bool): Whether to write rsi_ma_underlying_measures.csv (suppress in batch runs)
+
     Returns:
     DataFrame: Composite scores for each stock and date
     """
@@ -382,15 +385,23 @@ def calculate_composite_scores(data, spy_data, rsi_window=14, ma_short=50, ma_lo
     
     # Convert to DataFrame and save
     underlying_df = pd.DataFrame(underlying_measures)
-    if not underlying_df.empty:
+    if save_underlying and not underlying_df.empty:
         underlying_df.to_csv('rsi_ma_underlying_measures.csv', index=False)
         print(f"Underlying measures saved to rsi_ma_underlying_measures.csv")
     
-    # Convert to cross-sectional z-scores (across stocks for each date)
-    rsi_z = -calculate_cross_sectional_zscore(rsi_scores)  # Negate z-score so low RSI gives high score
-    ma_diff_z = calculate_cross_sectional_zscore(ma_diff_scores)
-    ma_deriv_z = calculate_cross_sectional_zscore(ma_deriv_scores)
-    rel_strength_z = calculate_cross_sectional_zscore(rel_strength_scores)  # Higher relative strength = higher score
+    # Convert to z-scores using the selected method
+    if zscore_method == 'rolling':
+        # Time-series: each stock normalized vs its own zscore_window-day history
+        rsi_z          = -calculate_rolling_zscore(rsi_scores.astype(float),          window=zscore_window)
+        ma_diff_z      =  calculate_rolling_zscore(ma_diff_scores.astype(float),      window=zscore_window)
+        ma_deriv_z     =  calculate_rolling_zscore(ma_deriv_scores.astype(float),     window=zscore_window)
+        rel_strength_z =  calculate_rolling_zscore(rel_strength_scores.astype(float), window=zscore_window)
+    else:
+        # Cross-sectional: normalize across stocks for each date (original behavior)
+        rsi_z          = -calculate_cross_sectional_zscore(rsi_scores)
+        ma_diff_z      =  calculate_cross_sectional_zscore(ma_diff_scores)
+        ma_deriv_z     =  calculate_cross_sectional_zscore(ma_deriv_scores)
+        rel_strength_z =  calculate_cross_sectional_zscore(rel_strength_scores)
     
     # Calculate composite scores (average of two z-scores - MA only, no relative strength for now)
     composite_scores = (ma_diff_z + ma_deriv_z) / 2
@@ -595,7 +606,8 @@ if __name__ == "__main__":
         ma_short=50,
         ma_long=200,
         derivative_window=5,
-        zscore_window=252,
+        zscore_window=126,  # reset this after fixing zscore code as the optimal number
+        zscore_method='rolling',  # switch to rolling z-scores for time-series normalization
         rel_strength_window=20
     )
 

@@ -40,6 +40,7 @@ class ExperimentConfig:
     derivative_window: int = 5
     zscore_window: int = 252
     rel_strength_window: int = 20
+    zscore_method: str = 'cross_sectional'  # 'cross_sectional' or 'rolling'
 
 
 @dataclass
@@ -116,7 +117,9 @@ def run_experiment(config: ExperimentConfig, data: pd.DataFrame, spy_data: pd.Se
         ma_long=config.ma_long,
         derivative_window=config.derivative_window,
         zscore_window=config.zscore_window,
-        rel_strength_window=config.rel_strength_window
+        rel_strength_window=config.rel_strength_window,
+        zscore_method=config.zscore_method,
+        save_underlying=False,
     )
 
     # Temporarily suppress print statements from select_top_stocks_biweekly
@@ -270,6 +273,42 @@ def run_rebalance_frequency_comparison(data: pd.DataFrame, spy_data: pd.Series):
     return results
 
 
+def run_zscore_method_comparison(data: pd.DataFrame, spy_data: pd.Series):
+    """
+    Compare cross-sectional vs rolling z-score normalization across multiple windows.
+
+    Configs:
+      - cross_sectional: baseline (current production behavior)
+      - rolling 63/126/252/504 days: time-series normalization vs each stock's own history
+
+    min_data_days is set to max(200, window) so the backtest only starts after both
+    the 200-day MA and the rolling z-score window have fully warmed up.
+
+    Parameters:
+    data: Price data DataFrame
+    spy_data: SPY price series
+
+    Returns:
+    List of ExperimentResult objects
+    """
+    configs = [
+        ExperimentConfig(name='cross_sectional', zscore_method='cross_sectional', zscore_window=252, min_data_days=200),
+        ExperimentConfig(name='rolling_63d',     zscore_method='rolling',          zscore_window=63,  min_data_days=200),
+        ExperimentConfig(name='rolling_126d',    zscore_method='rolling',          zscore_window=126, min_data_days=200),
+        ExperimentConfig(name='rolling_252d',    zscore_method='rolling',          zscore_window=252, min_data_days=252),
+        ExperimentConfig(name='rolling_504d',    zscore_method='rolling',          zscore_window=504, min_data_days=504),
+    ]
+
+    results = []
+    for config in configs:
+        print(f"\n  Running {config.name}  (zscore_window={config.zscore_window}, min_data_days={config.min_data_days})...")
+        result = run_experiment(config, data, spy_data, verbose=False)
+        results.append(result)
+        print(f"    CAGR: {result.cagr:.2%}  Sharpe: {result.sharpe_ratio:.2f}  MaxDD: {result.max_drawdown:.2%}  Days: {result.num_days:,}")
+
+    return results
+
+
 def main():
     """Main entry point for running experiments."""
     print("="*80)
@@ -280,6 +319,16 @@ def main():
     # Load data once (reused across experiments)
     print("\n--- Loading Data ---")
     data, spy_data = load_data(etfs)
+
+    # --- Z-SCORE METHOD COMPARISON ---
+    print("\n--- Z-Score Method Comparison (5 configs — may take a few minutes) ---")
+    print("  Note: CAGR and Sharpe are annualized; use these to compare, not Total Return")
+    print("        (rolling configs have shorter effective test periods due to warmup)\n")
+    zscore_results = run_zscore_method_comparison(data, spy_data)
+    print_comparison(zscore_results)
+    zscore_df = compare_experiments(zscore_results)
+    zscore_df.to_csv('rsi_ma_zscore_comparison.csv', index=False)
+    print(f"\nZ-score comparison exported to: rsi_ma_zscore_comparison.csv")
 
     # Run weekly vs biweekly comparison
     print("\n--- Running Weekly vs Biweekly Comparison ---")
