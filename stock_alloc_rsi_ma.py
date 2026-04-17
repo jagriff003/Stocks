@@ -2,7 +2,111 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from dataclasses import dataclass, field
+from typing import List, Optional
 from datetime import datetime
+
+
+@dataclass
+class VixRegimeConfig:
+    """
+    All thresholds for VIX-based regime detection.  Tune these in backtest_experiments.py.
+
+    Regime logic (evaluated in order, highest wins):
+      - vix_z >= crisis_zscore                     → 'crisis'
+      - vix_z >= elevated_zscore                   → 'elevated'
+      - (optional) vix_roc >= roc_threshold        → 'elevated'  (spike trigger)
+      - else                                        → 'normal'
+
+    In 'elevated' regime:  keep elevated_top_n momentum picks, fill remaining
+                           slots from defensive_symbols.
+    In 'crisis' regime:    replace portfolio entirely with crisis_symbols.
+    """
+    # --- signal parameters ---
+    zscore_window: int = 60          # rolling window (days) for VIX z-score baseline
+    roc_window: int = 5              # look-back for rate-of-change spike check
+
+    # --- regime thresholds (VIX z-score) ---
+    elevated_zscore: float = 1.0     # VIX z-score ≥ this → elevated
+    crisis_zscore: float = 2.0       # VIX z-score ≥ this → crisis
+
+    # --- optional spike-based trigger ---
+    use_roc_trigger: bool = False    # also enter 'elevated' on a fast VIX spike
+    roc_threshold: float = 0.30      # 30 % rise over roc_window days triggers elevated
+
+    # --- defensive allocation ---
+    elevated_top_n: int = 2          # momentum slots to keep in elevated regime
+    defensive_symbols: List[str] = field(default_factory=lambda: ['SHY', 'TLT', 'IAU'])
+    crisis_symbols: List[str] = field(default_factory=lambda: ['SHY', 'TLT'])
+
+
+def calculate_vix_regime(vix_data: pd.Series, config: VixRegimeConfig):
+    """
+    Classify each trading day into a volatility regime.
+
+    Returns:
+        regime  : Series[str]   — 'normal' | 'elevated' | 'crisis'
+        vix_z   : Series[float] — rolling z-score of VIX (useful for diagnostics)
+    """
+    rolling_mean = vix_data.rolling(config.zscore_window).mean()
+    rolling_std  = vix_data.rolling(config.zscore_window).std()
+    vix_z = (vix_data - rolling_mean) / rolling_std.replace(0, np.nan)
+
+    vix_roc = vix_data.pct_change(config.roc_window)
+
+    regime = pd.Series('normal', index=vix_data.index)
+    regime[vix_z >= config.elevated_zscore] = 'elevated'
+    regime[vix_z >= config.crisis_zscore]   = 'crisis'
+
+    if config.use_roc_trigger:
+        # spike can push 'normal' to 'elevated', but never downgrade 'crisis'
+        spike_mask = (vix_roc >= config.roc_threshold) & (regime == 'normal')
+        regime[spike_mask] = 'elevated'
+
+    return regime, vix_z
+
+
+@dataclass
+class VelocityConfig:
+    """
+    Parameters for blending z-score level with z-score velocity (rate of change).
+
+    Score formula:
+        blended = level_weight × z_level + velocity_weight × z_velocity
+
+    Both components are cross-sectionally normalized before blending so the weights
+    have a clean interpretation (0.5/0.5 = equal influence from each).
+
+    This allows the system to:
+      - Still rank high momentum stocks highly (high level + positive velocity)
+      - Catch mean-reversion entries (recovering from negative level, positive velocity)
+      - Penalize topping-out stocks (high level + turning negative velocity)
+    """
+    velocity_window: int = 10          # N-day change in composite z-score
+    level_weight: float = 0.5          # weight on current z-score level
+    velocity_weight: float = 0.5       # weight on z-score velocity
+    min_level_threshold: float = -3.0  # hard floor: skip stocks in complete freefall
+
+
+def apply_velocity_blend(composite_scores: pd.DataFrame, config: VelocityConfig) -> pd.DataFrame:
+    """
+    Blend level z-scores with velocity (N-day rate of change of z-score).
+
+    Velocity is cross-sectionally normalized to the same scale as the level so
+    level_weight and velocity_weight have symmetric, interpretable meaning.
+
+    Parameters:
+    composite_scores : DataFrame of level z-scores (dates × stocks)
+    config           : VelocityConfig
+
+    Returns:
+    DataFrame of blended scores, same shape as composite_scores
+    """
+    velocity_raw = composite_scores.diff(config.velocity_window)
+    velocity_z   = calculate_cross_sectional_zscore(velocity_raw.astype(float))
+    blended      = config.level_weight * composite_scores + config.velocity_weight * velocity_z
+    return blended
+
 
 def calculate_rsi(prices, window=14):
     """
@@ -408,61 +512,115 @@ def calculate_composite_scores(data, spy_data, rsi_window=14, ma_short=50, ma_lo
     
     return composite_scores, rsi_z, ma_diff_z, ma_deriv_z, rel_strength_z
 
-def select_top_stocks_biweekly(composite_scores, data, top_n=4, min_data_days=200, hold_days=14):
+def select_top_stocks_biweekly(composite_scores, data, top_n=4, min_data_days=200, hold_days=14,
+                               vix_data: Optional[pd.Series] = None,
+                               vix_config: Optional[VixRegimeConfig] = None,
+                               base_composite_scores: Optional[pd.DataFrame] = None,
+                               velocity_config: Optional[VelocityConfig] = None):
     """
     Select top N stocks with biweekly rebalancing and minimum hold period.
-    
+
+    When vix_data + vix_config are supplied the portfolio is adjusted based on
+    the current volatility regime (see VixRegimeConfig for threshold docs).
+
+    When velocity_config is supplied, base_composite_scores should be the original
+    (pre-blend) scores and is used solely for the min_level_threshold floor filter —
+    preventing selection of stocks in complete freefall despite a small velocity bounce.
+    composite_scores should already be the blended scores in this case.
+
     Parameters:
-    composite_scores (DataFrame): Composite scores for each stock and date
+    composite_scores (DataFrame): Scores used for ranking (blended if velocity enabled)
     data (DataFrame): Price data for return calculations
     top_n (int): Number of top stocks to select
     min_data_days (int): Minimum number of data points required
     hold_days (int): Minimum hold period in days (default 14)
-    
+    vix_data (Series, optional): Daily VIX closing prices
+    vix_config (VixRegimeConfig, optional): Regime detection parameters
+    base_composite_scores (DataFrame, optional): Original level-only scores for floor filter
+    velocity_config (VelocityConfig, optional): Velocity blend parameters
+
     Returns:
     DataFrame: Portfolio performance with biweekly rebalancing
     """
     portfolio_returns = []
     rebalance_history = []
-    
+
+    # Pre-compute regime series once so the inner loop is fast
+    vix_regime = None
+    if vix_data is not None and vix_config is not None:
+        regime_series, _ = calculate_vix_regime(vix_data, vix_config)
+        vix_regime = regime_series.reindex(composite_scores.index, method='ffill')
+
     # Start after we have sufficient data
     start_idx = min_data_days
     dates = composite_scores.index[start_idx:]
-    
+
     current_portfolio = []
     last_rebalance_date = None
-    
+
     for i, date in enumerate(dates):
-        # Check if it's time to rebalance (every 14 days or first selection)
-        if (last_rebalance_date is None or 
-            (date - last_rebalance_date).days >= hold_days):
-            
+        # Check if it's time to rebalance (every hold_days or first selection)
+        if (last_rebalance_date is None or
+                (date - last_rebalance_date).days >= hold_days):
+
             # Get valid scores for this date
             valid_scores = composite_scores.loc[date].dropna()
-            
+
             # Filter for stocks with sufficient data history
             valid_stocks = []
             for stock in valid_scores.index:
                 stock_data = composite_scores[stock].loc[:date]
                 if stock_data.notna().sum() >= min_data_days:
+                    # Hard floor: skip stocks in complete freefall
+                    # (uses original level scores, not the blended ranking scores)
+                    if (velocity_config is not None
+                            and base_composite_scores is not None
+                            and stock in base_composite_scores.columns):
+                        level = base_composite_scores.loc[date, stock]
+                        if not pd.isna(level) and level < velocity_config.min_level_threshold:
+                            continue
                     valid_stocks.append(stock)
-            
+
             if len(valid_stocks) >= top_n:
-                # Select top N based on highest composite scores
-                top_stocks = valid_scores[valid_stocks].sort_values(ascending=False).head(top_n)
-                new_portfolio = top_stocks.index.tolist()
-                
+                # --- determine current regime ---
+                regime = 'normal'
+                if vix_regime is not None:
+                    r = vix_regime.get(date)
+                    if r and not pd.isna(r):
+                        regime = r
+
+                # --- build portfolio based on regime ---
+                if regime == 'crisis' and vix_config is not None:
+                    available = [s for s in vix_config.crisis_symbols if s in data.columns]
+                    new_portfolio = available if available else \
+                        valid_scores[valid_stocks].sort_values(ascending=False).head(top_n).index.tolist()
+
+                elif regime == 'elevated' and vix_config is not None:
+                    n_momentum = min(vix_config.elevated_top_n, len(valid_stocks))
+                    momentum_picks = valid_scores[valid_stocks].sort_values(ascending=False) \
+                                                               .head(n_momentum).index.tolist()
+                    fill_candidates = [s for s in vix_config.defensive_symbols
+                                       if s in data.columns and s not in momentum_picks]
+                    fill_n = max(0, top_n - n_momentum)
+                    new_portfolio = momentum_picks + fill_candidates[:fill_n]
+
+                else:  # normal
+                    new_portfolio = valid_scores[valid_stocks].sort_values(ascending=False) \
+                                                              .head(top_n).index.tolist()
+
                 # Record rebalancing
+                scores_dict = valid_scores[new_portfolio].to_dict() if new_portfolio else {}
                 rebalance_history.append({
                     'Date': date,
                     'Selected_Stocks': new_portfolio,
-                    'Scores': top_stocks.to_dict()
+                    'Scores': scores_dict,
+                    'Regime': regime,
                 })
-                
+
                 current_portfolio = new_portfolio
                 last_rebalance_date = date
-                
-                print(f"Rebalanced on {date.strftime('%Y-%m-%d')}: {', '.join(new_portfolio)}")
+
+                print(f"Rebalanced on {date.strftime('%Y-%m-%d')} [{regime.upper()}]: {', '.join(new_portfolio)}")
         
         # Calculate portfolio return for next day (if we have a portfolio and next day data)
         if current_portfolio and i < len(dates) - 1:
@@ -582,16 +740,18 @@ if __name__ == "__main__":
     # Download historical data for the ETFs (daily data)
     data = yf.download(etfs, start='2010-01-01', interval='1d')["Close"]  # end=datetime.now().strftime('%Y-%m-%d'),
 
-    # Download SPY data for relative strength calculations
-    spy_data = yf.download('SPY', start='2010-01-01', interval='1d')["Close"]
+    # Download SPY for relative strength, and VIX for regime detection
+    spy_data = yf.download('SPY',  start='2010-01-01', interval='1d')["Close"]
+    vix_data = yf.download('^VIX', start='2010-01-01', interval='1d')["Close"].squeeze()
 
     # Clean the data - remove stocks with insufficient recent data
     one_year_ago = data.index[-1] - pd.DateOffset(months=12)
     recent_data = data.loc[one_year_ago:]
     data = data.dropna(axis=1, thresh=recent_data.shape[0])
 
-    # Align SPY data with our stock data
+    # Align SPY and VIX data with our stock data
     spy_data = spy_data.reindex(data.index, method='ffill')
+    vix_data = vix_data.reindex(data.index, method='ffill')
 
     print(f"Data shape after cleaning: {data.shape}")
     print(f"Date range: {data.index[0]} to {data.index[-1]}")
@@ -611,10 +771,34 @@ if __name__ == "__main__":
         rel_strength_window=20
     )
 
+    # Velocity blend config — tune here, then run backtest_experiments.py to compare
+    velocity_cfg = VelocityConfig(
+        velocity_window=10,        # N-day change in composite z-score
+        level_weight=0.7,          # weight on z-score level  (v10_L70V30 — best CAGR+Sharpe)
+        velocity_weight=0.3,       # weight on z-score velocity
+        min_level_threshold=-3.0,  # skip stocks still in complete freefall
+    )
+
+    # Apply velocity blend: save original scores for the floor filter
+    base_composite_scores = composite_scores.copy()
+    composite_scores = apply_velocity_blend(composite_scores, velocity_cfg)
+
+    # VIX regime config — tune thresholds here, then run backtest_experiments.py to compare
+    vix_cfg = VixRegimeConfig(
+        zscore_window=60,       # rolling baseline for VIX z-score
+        elevated_zscore=1.5,    # z >= this → reduce to elevated_top_n momentum picks
+        crisis_zscore=2.5,      # z >= this → go fully defensive
+        elevated_top_n=2,       # momentum picks to keep when elevated
+        use_roc_trigger=False,  # set True to also catch fast spikes by ROC
+        roc_threshold=0.30,     # 30 % VIX rise in roc_window days triggers elevated
+    )
+
     # Run biweekly rebalancing strategy
     print("=== RUNNING BIWEEKLY REBALANCING STRATEGY ===")
     portfolio_performance, rebalance_history = select_top_stocks_biweekly(
-        composite_scores, data, top_n=4, min_data_days=200, hold_days=14
+        composite_scores, data, top_n=4, min_data_days=200, hold_days=14,
+        vix_data=vix_data, vix_config=vix_cfg,
+        base_composite_scores=base_composite_scores, velocity_config=velocity_cfg,
     )
 
     if not portfolio_performance.empty:
