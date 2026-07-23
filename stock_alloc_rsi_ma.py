@@ -673,38 +673,48 @@ etfs = [
     # Communication Services
     'GOOGL',# Alphabet (Google)
     'META', # Meta
-    'NFLX', # Netflix
+    'LYV',  # Live Nation (Entertainment)
+    ## 'NFLX', # Netflix (removed 5/27 replaced with LYV)
     # Consumer Discretionary
     'AMZN', # Amazon (Broad Retail)
     'HD',   # Home Depot (Home Improvement)
     'BKNG', # Booking Holding Inc (Leisure/Travel)
-    'GM',   # General Motors (Auto)
+    'F',    # Ford (Auto)
+    ## 'GM',   # General Motors (Auto)
     # Consumer Staples
     'COST', # Costco (Merch)
-    'PG',   # Procter & Gamble (Household)
+    ## 'PG',   # Procter & Gamble (Household)
+    'PM',   # Philip Morris (Tobacco)
     'KR',   # Kroger (Food)
-    'ADM',  # Archer-Daniels-Midland (Ag)
+    'KO',   # Coca-Cola (Beverage)
+    ## 'ADM',  # Archer-Daniels-Midland (Ag)
     # Energy
     'XOM',  # Exxon Mobil
-    'CEG',  # Constellation Energy (Nuclear/Uranium)
+    'MPC',  # Marathon Petroleum (Refining)
+    # 'CEG',  # Constellation Energy (Nuclear/Uranium)
     # Financials
     'JPM',  # JP Morgan Chase
     'V',    # Visa (Transaction)
     'AXP',  # American Express (Consumer)
-    'BX',   # Blackstone (Asset Mgt)
+    ## 'BX',   # Blackstone (Asset Mgt)
+    'STT',  # State Street (Asset Servicing)
     'PGR',  # Insurance
     # Health Care
  	'LLY',  # Eli Lilly (Pharma)
     'JNJ',  # Johnson & Johnson (Pharma)
     'ABBV', # AbbVie (Biotech)
-    'DHR',  # Danaher (Tools/Services)
-    'BSX',  # Boston Scientific (Equipment)
+    ## 'DHR',  # Danaher (Tools/Services)
+    ## 'BSX',  # Boston Scientific (Equipment)
+    'GILD', # Gilead Sciences (Biotech)
+    'CAH',  # Cardinal Health (Distribution)
     'MCK',  # McKesson (Provider)
     # Industrials
     'GE',   # GE Aerospace (Aero & Defense)
     'CAT',  # Caterpillar (Machinery)
-    'HON',  # Honeywell (Conglomerates)
-    'ADP',  # ADP (HR)
+    ## 'HON',  # Honeywell (Conglomerates)
+    'JCI',  # Johnson Controls (Building Products)
+    ## 'ADP',  # ADP (HR)
+    'PWR',  # Quanta Services (Infrastructure)
     'URI',  # United Rentals (Trading & Distribution)
     'BR',   # Broadridge Financial (data processing)
     # Information Technology
@@ -713,17 +723,20 @@ etfs = [
     'AAPL', # Apple (Hardware)
     'MSFT', # Microsoft Corporation (Software)
     'IBM',  # IBM (Services)
-    'APH',  # Amphenol (Components)
+    'STX',  # Seagate Technology (Data Storage)
+    ## 'APH',  # Amphenol (Components)
     # Materials
     'LIN',  # Linde (Chemical)
     'CRH',  # CRH (Construction)
     'AA',   # Alcoa (Metals)
     # Real Estate
     'WELL', # Welltower (Health Care)
-    'PLD',  # Prologis (Industrial)
+    ## 'PLD',  # Prologis (Industrial)
+    'SPG',  # Simon Property Group (Retail)
     'CBRE', # CBRE (Services)
     # Utilities
-    'NEE',  # Nextera (Electric)
+    ##'NEE',  # Nextera (Electric)
+    'CNP',  # CenterPoint Energy (Electric & Gas)
     # Other    
     'IAU',  # Gold ETF
 	'TLT',  # Long-Term Treasury ETF
