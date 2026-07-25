@@ -1,0 +1,53 @@
+Symbol,Sector,Role,Active,Note
+GOOGL,Communication Services,momentum,Y,Alphabet (Google)
+META,Communication Services,momentum,Y,Meta
+LYV,Communication Services,momentum,Y,Live Nation (Entertainment)
+AMZN,Consumer Discretionary,momentum,Y,Amazon (Broad Retail)
+HD,Consumer Discretionary,momentum,Y,Home Depot (Home Improvement)
+BKNG,Consumer Discretionary,momentum,Y,Booking Holdings (Leisure/Travel)
+F,Consumer Discretionary,momentum,Y,Ford (Auto)
+TSLA,Consumer Discretionary,momentum,Y,Tesla
+COST,Consumer Staples,momentum,Y,Costco (Merch)
+PM,Consumer Staples,momentum,Y,Philip Morris (Tobacco)
+KR,Consumer Staples,momentum,Y,Kroger (Food)
+KO,Consumer Staples,momentum,Y,Coca-Cola (Beverage)
+XOM,Energy,momentum,Y,Exxon Mobil
+MPC,Energy,momentum,Y,Marathon Petroleum (Refining)
+JPM,Financials,momentum,Y,JP Morgan Chase
+V,Financials,momentum,Y,Visa (Transaction)
+AXP,Financials,momentum,Y,American Express (Consumer)
+STT,Financials,momentum,Y,State Street (Asset Servicing)
+PGR,Financials,momentum,Y,Progressive (Insurance)
+BRK-B,Financials,momentum,Y,Berkshire Hathaway
+LLY,Health Care,momentum,Y,Eli Lilly (Pharma)
+JNJ,Health Care,momentum,Y,Johnson & Johnson (Pharma)
+ABBV,Health Care,momentum,Y,AbbVie (Biotech)
+GILD,Health Care,momentum,Y,Gilead Sciences (Biotech)
+CAH,Health Care,momentum,Y,Cardinal Health (Distribution)
+MCK,Health Care,momentum,Y,McKesson (Provider)
+GE,Industrials,momentum,Y,GE Aerospace (Aero & Defense)
+CAT,Industrials,momentum,Y,Caterpillar (Machinery)
+JCI,Industrials,momentum,Y,Johnson Controls (Building Products)
+PWR,Industrials,momentum,Y,Quanta Services (Infrastructure)
+URI,Industrials,momentum,Y,United Rentals (Trading & Distribution)
+BR,Industrials,momentum,Y,Broadridge Financial (Data Processing)
+NVDA,Information Technology,momentum,Y,NVIDIA (Semiconductors)
+TSM,Information Technology,momentum,Y,TSMC (Semiconductors)
+AAPL,Information Technology,momentum,Y,Apple (Hardware)
+MSFT,Information Technology,momentum,Y,Microsoft (Software)
+IBM,Information Technology,momentum,Y,IBM (Services)
+STX,Information Technology,momentum,Y,Seagate (Data Storage)
+LIN,Materials,momentum,Y,Linde (Chemical)
+CRH,Materials,momentum,Y,CRH (Construction)
+AA,Materials,momentum,Y,Alcoa (Metals)
+NEM,Materials,momentum,Y,Newmont (Gold Miner)
+WELL,Real Estate,momentum,Y,Welltower (Health Care REIT)
+SPG,Real Estate,momentum,Y,Simon Property Group (Retail REIT)
+CBRE,Real Estate,momentum,Y,CBRE (Services)
+CNP,Utilities,momentum,Y,CenterPoint Energy (Electric & Gas)
+HYG,Credit,momentum,Y,High Yield Bond ETF
+IBIT,Alternative,momentum,Y,Bitcoin Trust
+IAU,Defensive,defensive,Y,Gold ETF
+TLT,Defensive,defensive,Y,Long-Term Treasury ETF
+SHY,Defensive,defensive,Y,Short-Term Treasury ETF
+SH,Hedge,momentum,Y,Short SPY (monitor; signal to stay out when above -0.1)

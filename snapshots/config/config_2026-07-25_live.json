@@ -1,0 +1,49 @@
+{
+  "_label": "live",
+  "_snapshot_date": "2026-07-25",
+  "execution": {
+    "execute_at": "next_open",
+    "risk_free_rate": 0.045,
+    "slippage_bps": 7.5,
+    "tax_rate_short_term": 0.0
+  },
+  "graduated_vix": null,
+  "hold_days": 14,
+  "min_data_days": 200,
+  "notes": "post-refactor baseline: fixed blend scale, realistic execution",
+  "scoring": {
+    "derivative_window": 5,
+    "ma_long": 200,
+    "ma_short": 50,
+    "rel_strength_window": 20,
+    "rsi_window": 14,
+    "zscore_method": "rolling",
+    "zscore_window": 126
+  },
+  "top_n": 4,
+  "velocity": {
+    "blend_normalization": "cross_sectional",
+    "level_weight": 0.7,
+    "min_level_threshold": -3.0,
+    "velocity_weight": 0.3,
+    "velocity_window": 5
+  },
+  "vix": {
+    "crisis_symbols": [
+      "SHY",
+      "TLT"
+    ],
+    "crisis_zscore": 2.5,
+    "defensive_symbols": [
+      "SHY",
+      "TLT",
+      "IAU"
+    ],
+    "elevated_top_n": 2,
+    "elevated_zscore": 1.5,
+    "roc_threshold": 0.3,
+    "roc_window": 5,
+    "use_roc_trigger": false,
+    "zscore_window": 60
+  }
+}

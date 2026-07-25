@@ -1,0 +1,966 @@
+"""
+FROZEN pre-refactor model — reference implementation, do not edit.
+
+This is a verbatim copy of `stock_alloc_rsi_ma.py` as of commit 5742efe, kept
+solely so `tests/test_parity.py` can prove the `momentum` package reproduces it.
+It is not the live model any more and should never be run for signals.
+
+If you find yourself wanting to change something here, the change belongs in the
+`momentum` package — and then the parity test is expected to fail, which is the
+signal to update the test's baseline deliberately rather than by accident.
+"""
+
+import yfinance as yf
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from dataclasses import dataclass, field
+from typing import List, Optional
+from datetime import datetime
+
+
+@dataclass
+class VixRegimeConfig:
+    """
+    All thresholds for VIX-based regime detection.  Tune these in backtest_experiments.py.
+
+    Regime logic (evaluated in order, highest wins):
+      - vix_z >= crisis_zscore                     → 'crisis'
+      - vix_z >= elevated_zscore                   → 'elevated'
+      - (optional) vix_roc >= roc_threshold        → 'elevated'  (spike trigger)
+      - else                                        → 'normal'
+
+    In 'elevated' regime:  keep elevated_top_n momentum picks, fill remaining
+                           slots from defensive_symbols.
+    In 'crisis' regime:    replace portfolio entirely with crisis_symbols.
+    """
+    # --- signal parameters ---
+    zscore_window: int = 60          # rolling window (days) for VIX z-score baseline
+    roc_window: int = 5              # look-back for rate-of-change spike check
+
+    # --- regime thresholds (VIX z-score) ---
+    elevated_zscore: float = 1.0     # VIX z-score ≥ this → elevated
+    crisis_zscore: float = 2.0       # VIX z-score ≥ this → crisis
+
+    # --- optional spike-based trigger ---
+    use_roc_trigger: bool = False    # also enter 'elevated' on a fast VIX spike
+    roc_threshold: float = 0.30      # 30 % rise over roc_window days triggers elevated
+
+    # --- defensive allocation ---
+    elevated_top_n: int = 2          # momentum slots to keep in elevated regime
+    defensive_symbols: List[str] = field(default_factory=lambda: ['SHY', 'TLT', 'IAU'])
+    crisis_symbols: List[str] = field(default_factory=lambda: ['SHY', 'TLT'])
+
+
+def calculate_vix_regime(vix_data: pd.Series, config: VixRegimeConfig):
+    """
+    Classify each trading day into a volatility regime.
+
+    Returns:
+        regime  : Series[str]   — 'normal' | 'elevated' | 'crisis'
+        vix_z   : Series[float] — rolling z-score of VIX (useful for diagnostics)
+    """
+    rolling_mean = vix_data.rolling(config.zscore_window).mean()
+    rolling_std  = vix_data.rolling(config.zscore_window).std()
+    vix_z = (vix_data - rolling_mean) / rolling_std.replace(0, np.nan)
+
+    vix_roc = vix_data.pct_change(config.roc_window)
+
+    regime = pd.Series('normal', index=vix_data.index)
+    regime[vix_z >= config.elevated_zscore] = 'elevated'
+    regime[vix_z >= config.crisis_zscore]   = 'crisis'
+
+    if config.use_roc_trigger:
+        # spike can push 'normal' to 'elevated', but never downgrade 'crisis'
+        spike_mask = (vix_roc >= config.roc_threshold) & (regime == 'normal')
+        regime[spike_mask] = 'elevated'
+
+    return regime, vix_z
+
+
+@dataclass
+class VelocityConfig:
+    """
+    Parameters for blending z-score level with z-score velocity (rate of change).
+
+    Score formula:
+        blended = level_weight × z_level + velocity_weight × z_velocity
+
+    Both components are cross-sectionally normalized before blending so the weights
+    have a clean interpretation (0.5/0.5 = equal influence from each).
+
+    This allows the system to:
+      - Still rank high momentum stocks highly (high level + positive velocity)
+      - Catch mean-reversion entries (recovering from negative level, positive velocity)
+      - Penalize topping-out stocks (high level + turning negative velocity)
+    """
+    velocity_window: int = 10          # N-day change in composite z-score
+    level_weight: float = 0.5          # weight on current z-score level
+    velocity_weight: float = 0.5       # weight on z-score velocity
+    min_level_threshold: float = -3.0  # hard floor: skip stocks in complete freefall
+
+
+def apply_velocity_blend(composite_scores: pd.DataFrame, config: VelocityConfig) -> pd.DataFrame:
+    """
+    Blend level z-scores with velocity (N-day rate of change of z-score).
+
+    Velocity is cross-sectionally normalized to the same scale as the level so
+    level_weight and velocity_weight have symmetric, interpretable meaning.
+
+    Parameters:
+    composite_scores : DataFrame of level z-scores (dates × stocks)
+    config           : VelocityConfig
+
+    Returns:
+    DataFrame of blended scores, same shape as composite_scores
+    """
+    velocity_raw = composite_scores.diff(config.velocity_window)
+    velocity_z   = calculate_cross_sectional_zscore(velocity_raw.astype(float))
+    blended      = config.level_weight * composite_scores + config.velocity_weight * velocity_z
+    return blended
+
+
+def calculate_rsi(prices, window=14):
+    """
+    Calculate RSI (Relative Strength Index) using Wilder's smoothing method.
+    
+    Parameters:
+    prices (Series): Price series
+    window (int): RSI calculation window (default 14)
+    
+    Returns:
+    Series: RSI values
+    """
+    delta = prices.diff()
+    gain = delta.where(delta > 0, np.nan)
+    loss = (-delta).where(delta < 0, np.nan)
+    
+    # Use Wilder's smoothing (exponential moving average with alpha = 1/window)
+    alpha = 1.0 / window
+    gain_avg = gain.ewm(alpha=alpha, adjust=False).mean()
+    loss_avg = loss.ewm(alpha=alpha, adjust=False).mean()
+    
+    rs = gain_avg / loss_avg
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+def calculate_ma_difference(prices, short_window=50, long_window=200):
+    """
+    Calculate difference between short and long moving averages.
+    
+    Parameters:
+    prices (Series): Price series
+    short_window (int): Short MA window (default 50)
+    long_window (int): Long MA window (default 200)
+    
+    Returns:
+    Series: MA difference (short - long)
+    """
+    short_ma = prices.rolling(window=short_window).mean()
+    long_ma = prices.rolling(window=long_window).mean()
+    return short_ma - long_ma
+
+def calculate_ma_derivative(ma_diff, derivative_window=5):
+    """
+    Calculate first derivative of MA difference.
+    
+    Parameters:
+    ma_diff (Series): Moving average difference series
+    derivative_window (int): Window for derivative calculation (default 5)
+    
+    Returns:
+    Series: First derivative of MA difference
+    """
+    return ma_diff.diff(derivative_window)
+
+def calculate_rolling_zscore(data, window=252):
+    """
+    Calculate rolling z-score for a DataFrame or Series.
+    
+    Parameters:
+    data (DataFrame/Series): Input data
+    window (int): Rolling window for z-score calculation (default 252)
+    
+    Returns:
+    DataFrame/Series: Rolling z-scores
+    """
+    if isinstance(data, pd.DataFrame):
+        return data.apply(lambda x: (x - x.rolling(window).mean()) / x.rolling(window).std())
+    else:
+        return (data - data.rolling(window).mean()) / data.rolling(window).std()
+
+def calculate_cross_sectional_zscore(data):
+    """
+    Calculate cross-sectional z-score (across stocks for each date).
+    
+    Parameters:
+    data (DataFrame): Data with dates as index, stocks as columns
+    
+    Returns:
+    DataFrame: Cross-sectional z-scores
+    """
+    return data.apply(lambda row: (row - row.mean()) / row.std(), axis=1)
+
+def backtest_momentum_strategy(data, lookback_months=12, min_momentum_months=6, top_n=4):
+    """
+    Backtest momentum strategy with monthly rebalancing.
+    
+    Parameters:
+    data (DataFrame): Historical price data of ETFs.
+    lookback_months (int): Months to look back for momentum calculation.
+    min_momentum_months (int): Minimum months for momentum calculation.
+    top_n (int): Number of top ETFs to select.
+    
+    Returns:
+    DataFrame: Portfolio performance with monthly returns.
+    """
+    portfolio_returns = []
+    selected_etfs_history = []
+    
+    # Start backtesting after we have enough data for momentum calculation
+    start_idx = max(lookback_months, min_momentum_months)
+    
+    for i in range(start_idx, len(data) - 1):  # -1 because we need next month's data for returns
+        current_date = data.index[i]
+        next_date = data.index[i + 1]
+        
+        # Calculate momentum scores for portfolio selection (using data up to current month)
+        prev_data = data.iloc[:i]
+        
+        if len(prev_data) >= lookback_months:
+            # Calculate 6 and 12 month momentum
+            momentum_6m = prev_data.pct_change(periods=min_momentum_months).iloc[-1]
+            momentum_12m = prev_data.pct_change(periods=lookback_months).iloc[-1]
+            
+            # Combine into blended score
+            composite_momentum = (momentum_6m + momentum_12m) / 2
+            
+            # Apply absolute momentum filter (only positive momentum)
+            filtered = composite_momentum[composite_momentum > 0]
+            
+            if len(filtered) >= top_n:
+                # Select top N ETFs
+                top_etfs = filtered.sort_values(ascending=False).head(top_n)
+                selected_etfs = top_etfs.index.tolist()
+                weights = [1.0/top_n] * top_n  # Equal weight
+            else:
+                # If not enough positive momentum ETFs, use cash proxy (SHY)
+                selected_etfs = ['SHY'] if 'SHY' in data.columns else []
+                weights = [1.0] if selected_etfs else []
+            
+            # Calculate portfolio return for NEXT month (i+1 price / i price - 1)
+            if selected_etfs:
+                monthly_returns = data.iloc[i + 1] / data.iloc[i] - 1  # Next month return
+                portfolio_return = sum(w * monthly_returns[etf] for w, etf in zip(weights, selected_etfs) if etf in monthly_returns.index)
+            else:
+                portfolio_return = 0
+                
+            portfolio_returns.append({
+                'Date': next_date,  # Use next month's date for the return period
+                'Portfolio_Return': portfolio_return,
+                'Selected_ETFs': selected_etfs,
+                'Weights': weights,
+                'All_Returns': monthly_returns,
+                'Selection_Date': current_date  # Track when selection was made
+            })
+            
+            selected_etfs_history.append({
+                'Date': current_date,
+                'ETFs': selected_etfs,
+                'Momentum_Scores': top_etfs.to_dict() if len(filtered) >= top_n else {},
+                'Return_Period': f"{current_date.strftime('%Y-%m')} to {next_date.strftime('%Y-%m')}"
+            })
+    
+    return pd.DataFrame(portfolio_returns), selected_etfs_history
+
+def calculate_performance_metrics(returns_series, is_daily=True):
+    """
+    Calculate key performance metrics for the strategy.
+    
+    Parameters:
+    returns_series (Series): Returns series (daily or monthly).
+    is_daily (bool): Whether returns are daily (True) or monthly (False).
+    
+    Returns:
+    dict: Performance metrics.
+    """
+    cumulative_return = (1 + returns_series).prod() - 1
+    
+    if is_daily:
+        # For daily returns, annualize using actual number of trading days
+        trading_days_per_year = 252
+        years = len(returns_series) / trading_days_per_year
+        annualized_return = (1 + cumulative_return) ** (1 / years) - 1
+        volatility = returns_series.std() * np.sqrt(trading_days_per_year)
+        period_label = f"{len(returns_series)} days"
+    else:
+        # For monthly returns (legacy code)
+        annualized_return = (1 + cumulative_return) ** (12 / len(returns_series)) - 1
+        volatility = returns_series.std() * np.sqrt(12)
+        period_label = f"{len(returns_series)} months"
+    
+    risk_free_rate = 0.045  # choose a number corresponding roughly to the 10 year treasury yield
+    sharpe_ratio = (annualized_return - risk_free_rate) / volatility if volatility > 0 else 0
+    max_drawdown = ((1 + returns_series).cumprod() / (1 + returns_series).cumprod().expanding().max() - 1).min()
+    
+    return {
+        'Total Return': f"{cumulative_return:.2%}",
+        'CAGR': f"{annualized_return:.2%}",
+        'Volatility': f"{volatility:.2%}",
+        'Sharpe Ratio': f"{sharpe_ratio:.2f}",
+        'Max Drawdown': f"{max_drawdown:.2%}",
+        'Period': period_label
+    }
+
+def calculate_individual_stock_performance(data, recent_years=3):
+    """
+    Calculate performance metrics for each individual stock/ETF.
+
+    Parameters:
+    data (DataFrame): Historical price data of ETFs.
+    recent_years (int): Number of recent years to use for volatility-based stops (default 3)
+
+    Returns:
+    DataFrame: Performance metrics for each stock.
+    """
+    performance_data = []
+
+    # Calculate cutoff date for recent volatility calculation
+    recent_cutoff = data.index[-1] - pd.DateOffset(years=recent_years)
+
+    for stock in data.columns:
+        # Calculate daily returns (full period for performance metrics)
+        daily_returns = data[stock].pct_change().dropna()
+
+        if len(daily_returns) > 0:
+            # Calculate metrics (daily data - full period)
+            cumulative_return = (1 + daily_returns).prod() - 1
+            trading_days_per_year = 252
+            years = len(daily_returns) / trading_days_per_year
+            cagr = (1 + cumulative_return) ** (1 / years) - 1
+            volatility = daily_returns.std() * np.sqrt(trading_days_per_year)
+            risk_free_rate = 0.045  # choose a number corresponding roughly to the 10 year treasury yield
+            sharpe_ratio = (cagr - risk_free_rate) / volatility if volatility > 0 else 0
+
+            # Calculate max drawdown
+            cumulative_wealth = (1 + daily_returns).cumprod()
+            running_max = cumulative_wealth.expanding().max()
+            drawdown = (cumulative_wealth / running_max - 1)
+            max_drawdown = drawdown.min()
+
+            # Calculate recent volatility for stop loss calculations (last N years)
+            recent_data = data[stock].loc[recent_cutoff:]
+            recent_returns = recent_data.pct_change().dropna()
+
+            if len(recent_returns) > 0:
+                recent_annualized_vol = recent_returns.std() * np.sqrt(trading_days_per_year)
+                daily_vol = recent_annualized_vol / np.sqrt(trading_days_per_year)
+                stop_2x = daily_vol * 2.0
+                stop_2_5x = daily_vol * 2.5
+            else:
+                recent_annualized_vol = volatility  # Fallback to full period
+                daily_vol = recent_annualized_vol / np.sqrt(trading_days_per_year)
+                stop_2x = daily_vol * 2.0
+                stop_2_5x = daily_vol * 2.5
+
+            performance_data.append({
+                'Stock': stock,
+                'Total Return': f"{cumulative_return:.2%}",
+                'CAGR': f"{cagr:.2%}",
+                'Volatility': f"{volatility:.2%}",
+                'Sharpe Ratio': f"{sharpe_ratio:.2f}",
+                'Max Drawdown': f"{max_drawdown:.2%}",
+                'Number of Days': len(daily_returns),
+                f'Recent {recent_years}Y Vol': f"{recent_annualized_vol:.2%}",
+                'Daily Vol': f"{daily_vol:.2%}",
+                '2x Stop %': f"{stop_2x:.2%}",
+                '2.5x Stop %': f"{stop_2_5x:.2%}"
+            })
+
+    return pd.DataFrame(performance_data)
+
+# def calculate_realized_volatility(prices, window=20):
+#     """
+#     Calculate realized volatility using rolling standard deviation of returns.
+#     
+#     Parameters:
+#     prices (Series): Price series
+#     window (int): Rolling window for volatility calculation (default 20)
+#     
+#     Returns:
+#     Series: Realized volatility values
+#     """
+#     returns = prices.pct_change()
+#     volatility = returns.rolling(window=window).std() * np.sqrt(252)  # Annualized
+#     return volatility
+
+def calculate_relative_strength(stock_prices, spy_prices, window=20):
+    """
+    Calculate relative strength vs SPY using rolling return ratios.
+    
+    Parameters:
+    stock_prices (Series): Individual stock price series
+    spy_prices (Series): SPY price series  
+    window (int): Rolling window for relative strength calculation (default 60)
+    
+    Returns:
+    Series: Relative strength values (stock return / SPY return)
+    """
+    # Calculate returns
+    stock_returns = stock_prices.pct_change(window)
+    spy_returns = spy_prices.pct_change(window)
+    
+    # Simple division with small epsilon to prevent division by zero
+    relative_strength = stock_returns / (spy_returns + 1e-8)
+    
+    return relative_strength
+
+def calculate_composite_scores(data, spy_data, rsi_window=14, ma_short=50, ma_long=200, derivative_window=5, zscore_window=252, rel_strength_window=20, zscore_method='cross_sectional', save_underlying=True):
+    """
+    Calculate composite scores for RSI/MA strategy.
+
+    Parameters:
+    data (DataFrame): Historical price data
+    rsi_window (int): RSI calculation window
+    ma_short (int): Short MA window
+    ma_long (int): Long MA window
+    derivative_window (int): Window for derivative calculation
+    zscore_window (int): Window for z-score calculation
+    zscore_method (str): 'cross_sectional' (normalize across stocks per day) or
+                         'rolling' (normalize each stock vs its own zscore_window-day history)
+    save_underlying (bool): Whether to write rsi_ma_underlying_measures.csv (suppress in batch runs)
+
+    Returns:
+    DataFrame: Composite scores for each stock and date
+    """
+    # Initialize containers for each measure
+    rsi_scores = pd.DataFrame(index=data.index, columns=data.columns)
+    ma_diff_scores = pd.DataFrame(index=data.index, columns=data.columns)
+    ma_deriv_scores = pd.DataFrame(index=data.index, columns=data.columns)
+    rel_strength_scores = pd.DataFrame(index=data.index, columns=data.columns)
+    
+    # Calculate measures for each stock
+    for stock in data.columns:
+        if data[stock].notna().sum() > max(ma_long, zscore_window):  # Ensure sufficient data
+            # RSI calculation
+            rsi = calculate_rsi(data[stock], rsi_window)
+            rsi_scores[stock] = rsi   # Keep RSI positive (0-100)
+            
+            # MA difference calculation
+            ma_diff = calculate_ma_difference(data[stock], ma_short, ma_long)
+            ma_diff_scores[stock] = ma_diff  
+            
+            # MA derivative calculation
+            ma_deriv = calculate_ma_derivative(ma_diff, derivative_window)
+            ma_deriv_scores[stock] = ma_deriv   
+            
+            # Relative strength vs SPY calculation
+            rel_strength = calculate_relative_strength(data[stock], spy_data, rel_strength_window)
+            rel_strength_scores.loc[:, stock] = rel_strength
+    
+    # Save underlying measures before standardization
+    underlying_measures = []
+    
+    for date in data.index:
+        for stock in data.columns:
+            # RSI measure
+            if not pd.isna(rsi_scores.loc[date, stock]):
+                underlying_measures.append({
+                    'Date': date,
+                    'Symbol': stock,
+                    'Measure': 'RSI',
+                    'Value': rsi_scores.loc[date, stock]  # Save actual RSI (0-100)
+                })
+            
+            # MA Difference measure (before negation)
+            if not pd.isna(ma_diff_scores.loc[date, stock]):
+                underlying_measures.append({
+                    'Date': date,
+                    'Symbol': stock,
+                    'Measure': 'MA_Difference_50_200',
+                    'Value': ma_diff_scores.loc[date, stock]  # Store actual MA difference (SMA50 - SMA200)
+                })
+            
+            # MA Derivative measure
+            if not pd.isna(ma_deriv_scores.loc[date, stock]):
+                underlying_measures.append({
+                    'Date': date,
+                    'Symbol': stock,
+                    'Measure': 'MA_Derivative',
+                    'Value': ma_deriv_scores.loc[date, stock]
+                })
+            
+            # Relative Strength measure
+            if not pd.isna(rel_strength_scores.loc[date, stock]):
+                underlying_measures.append({
+                    'Date': date,
+                    'Symbol': stock,
+                    'Measure': 'Relative_Strength_vs_SPY_20d',
+                    'Value': rel_strength_scores.loc[date, stock]
+                })
+    
+    # Convert to DataFrame and save
+    underlying_df = pd.DataFrame(underlying_measures)
+    if save_underlying and not underlying_df.empty:
+        underlying_df.to_csv('rsi_ma_underlying_measures.csv', index=False)
+        print(f"Underlying measures saved to rsi_ma_underlying_measures.csv")
+    
+    # Convert to z-scores using the selected method
+    if zscore_method == 'rolling':
+        # Time-series: each stock normalized vs its own zscore_window-day history
+        rsi_z          = -calculate_rolling_zscore(rsi_scores.astype(float),          window=zscore_window)
+        ma_diff_z      =  calculate_rolling_zscore(ma_diff_scores.astype(float),      window=zscore_window)
+        ma_deriv_z     =  calculate_rolling_zscore(ma_deriv_scores.astype(float),     window=zscore_window)
+        rel_strength_z =  calculate_rolling_zscore(rel_strength_scores.astype(float), window=zscore_window)
+    else:
+        # Cross-sectional: normalize across stocks for each date (original behavior)
+        rsi_z          = -calculate_cross_sectional_zscore(rsi_scores)
+        ma_diff_z      =  calculate_cross_sectional_zscore(ma_diff_scores)
+        ma_deriv_z     =  calculate_cross_sectional_zscore(ma_deriv_scores)
+        rel_strength_z =  calculate_cross_sectional_zscore(rel_strength_scores)
+    
+    # Calculate composite scores (average of two z-scores - MA only, no relative strength for now)
+    composite_scores = (ma_diff_z + ma_deriv_z) / 2
+    
+    return composite_scores, rsi_z, ma_diff_z, ma_deriv_z, rel_strength_z
+
+def select_top_stocks_biweekly(composite_scores, data, top_n=4, min_data_days=200, hold_days=14,
+                               vix_data: Optional[pd.Series] = None,
+                               vix_config: Optional[VixRegimeConfig] = None,
+                               base_composite_scores: Optional[pd.DataFrame] = None,
+                               velocity_config: Optional[VelocityConfig] = None):
+    """
+    Select top N stocks with biweekly rebalancing and minimum hold period.
+
+    When vix_data + vix_config are supplied the portfolio is adjusted based on
+    the current volatility regime (see VixRegimeConfig for threshold docs).
+
+    When velocity_config is supplied, base_composite_scores should be the original
+    (pre-blend) scores and is used solely for the min_level_threshold floor filter —
+    preventing selection of stocks in complete freefall despite a small velocity bounce.
+    composite_scores should already be the blended scores in this case.
+
+    Parameters:
+    composite_scores (DataFrame): Scores used for ranking (blended if velocity enabled)
+    data (DataFrame): Price data for return calculations
+    top_n (int): Number of top stocks to select
+    min_data_days (int): Minimum number of data points required
+    hold_days (int): Minimum hold period in days (default 14)
+    vix_data (Series, optional): Daily VIX closing prices
+    vix_config (VixRegimeConfig, optional): Regime detection parameters
+    base_composite_scores (DataFrame, optional): Original level-only scores for floor filter
+    velocity_config (VelocityConfig, optional): Velocity blend parameters
+
+    Returns:
+    DataFrame: Portfolio performance with biweekly rebalancing
+    """
+    portfolio_returns = []
+    rebalance_history = []
+
+    # Pre-compute regime series once so the inner loop is fast
+    vix_regime = None
+    if vix_data is not None and vix_config is not None:
+        regime_series, _ = calculate_vix_regime(vix_data, vix_config)
+        vix_regime = regime_series.reindex(composite_scores.index, method='ffill')
+
+    # Start after we have sufficient data
+    start_idx = min_data_days
+    dates = composite_scores.index[start_idx:]
+
+    current_portfolio = []
+    last_rebalance_date = None
+
+    for i, date in enumerate(dates):
+        # Check if it's time to rebalance (every hold_days or first selection)
+        if (last_rebalance_date is None or
+                (date - last_rebalance_date).days >= hold_days):
+
+            # Get valid scores for this date
+            valid_scores = composite_scores.loc[date].dropna()
+
+            # Filter for stocks with sufficient data history
+            valid_stocks = []
+            for stock in valid_scores.index:
+                stock_data = composite_scores[stock].loc[:date]
+                if stock_data.notna().sum() >= min_data_days:
+                    # Hard floor: skip stocks in complete freefall
+                    # (uses original level scores, not the blended ranking scores)
+                    if (velocity_config is not None
+                            and base_composite_scores is not None
+                            and stock in base_composite_scores.columns):
+                        level = base_composite_scores.loc[date, stock]
+                        if not pd.isna(level) and level < velocity_config.min_level_threshold:
+                            continue
+                    valid_stocks.append(stock)
+
+            if len(valid_stocks) >= top_n:
+                # --- determine current regime ---
+                regime = 'normal'
+                if vix_regime is not None:
+                    r = vix_regime.get(date)
+                    if r and not pd.isna(r):
+                        regime = r
+
+                # --- build portfolio based on regime ---
+                if regime == 'crisis' and vix_config is not None:
+                    available = [s for s in vix_config.crisis_symbols if s in data.columns]
+                    new_portfolio = available if available else \
+                        valid_scores[valid_stocks].sort_values(ascending=False).head(top_n).index.tolist()
+
+                elif regime == 'elevated' and vix_config is not None:
+                    n_momentum = min(vix_config.elevated_top_n, len(valid_stocks))
+                    momentum_picks = valid_scores[valid_stocks].sort_values(ascending=False) \
+                                                               .head(n_momentum).index.tolist()
+                    fill_candidates = [s for s in vix_config.defensive_symbols
+                                       if s in data.columns and s not in momentum_picks]
+                    fill_n = max(0, top_n - n_momentum)
+                    new_portfolio = momentum_picks + fill_candidates[:fill_n]
+
+                else:  # normal
+                    new_portfolio = valid_scores[valid_stocks].sort_values(ascending=False) \
+                                                              .head(top_n).index.tolist()
+
+                # Record rebalancing
+                scores_dict = valid_scores[new_portfolio].to_dict() if new_portfolio else {}
+                rebalance_history.append({
+                    'Date': date,
+                    'Selected_Stocks': new_portfolio,
+                    'Scores': scores_dict,
+                    'Regime': regime,
+                })
+
+                current_portfolio = new_portfolio
+                last_rebalance_date = date
+
+                print(f"Rebalanced on {date.strftime('%Y-%m-%d')} [{regime.upper()}]: {', '.join(new_portfolio)}")
+        
+        # Calculate portfolio return for next day (if we have a portfolio and next day data)
+        if current_portfolio and i < len(dates) - 1:
+            current_date = date
+            next_date = dates[i + 1]
+            
+            # Check if both dates exist in price data
+            if current_date in data.index and next_date in data.index:
+                # Calculate equal-weighted return for next day
+                daily_returns = []
+                for stock in current_portfolio:
+                    if stock in data.columns:
+                        stock_return = (data.loc[next_date, stock] / data.loc[current_date, stock]) - 1
+                        daily_returns.append(stock_return)
+                
+                if daily_returns:
+                    portfolio_return = sum(daily_returns) / len(daily_returns)  # Equal weight
+                    
+                    portfolio_returns.append({
+                        'Date': next_date,  # Return is for next day
+                        'Portfolio_Return': portfolio_return,
+                        'Holdings': current_portfolio.copy(),
+                        'Selection_Date': last_rebalance_date
+                    })
+    
+    return pd.DataFrame(portfolio_returns), rebalance_history
+
+def plot_momentum_portolio(data, top_etfs):
+    """
+    Plot the performance of the selected ETFs in the portfolio.
+    
+    Parameters:
+    data (DataFrame): Historical price data of ETFs.
+    top_etfs (list): List of top ETFs to plot.
+    """
+    plt.figure(figsize=(14, 7))
+    for etf in top_etfs:
+        plt.plot(data[etf], label=etf)
+    
+    plt.title('Top ETFs Performance')
+    plt.xlabel('Date')
+    plt.ylabel('Adjusted Close Price')
+    plt.legend()
+    plt.grid()
+    plt.show()
+
+# 20251223 begin shifting from ETFs (with poor technical signals) to high exposure stocks from ETFs
+#   then rescreen quarterly to ensure appropriate screening and selection
+etfs = [
+    # Communication Services
+    'GOOGL',# Alphabet (Google)
+    'META', # Meta
+    'LYV',  # Live Nation (Entertainment)
+    ## 'NFLX', # Netflix (removed 5/27 replaced with LYV)
+    # Consumer Discretionary
+    'AMZN', # Amazon (Broad Retail)
+    'HD',   # Home Depot (Home Improvement)
+    'BKNG', # Booking Holding Inc (Leisure/Travel)
+    'F',    # Ford (Auto)
+    ## 'GM',   # General Motors (Auto)
+    # Consumer Staples
+    'COST', # Costco (Merch)
+    ## 'PG',   # Procter & Gamble (Household)
+    'PM',   # Philip Morris (Tobacco)
+    'KR',   # Kroger (Food)
+    'KO',   # Coca-Cola (Beverage)
+    ## 'ADM',  # Archer-Daniels-Midland (Ag)
+    # Energy
+    'XOM',  # Exxon Mobil
+    'MPC',  # Marathon Petroleum (Refining)
+    # 'CEG',  # Constellation Energy (Nuclear/Uranium)
+    # Financials
+    'JPM',  # JP Morgan Chase
+    'V',    # Visa (Transaction)
+    'AXP',  # American Express (Consumer)
+    ## 'BX',   # Blackstone (Asset Mgt)
+    'STT',  # State Street (Asset Servicing)
+    'PGR',  # Insurance
+    # Health Care
+ 	'LLY',  # Eli Lilly (Pharma)
+    'JNJ',  # Johnson & Johnson (Pharma)
+    'ABBV', # AbbVie (Biotech)
+    ## 'DHR',  # Danaher (Tools/Services)
+    ## 'BSX',  # Boston Scientific (Equipment)
+    'GILD', # Gilead Sciences (Biotech)
+    'CAH',  # Cardinal Health (Distribution)
+    'MCK',  # McKesson (Provider)
+    # Industrials
+    'GE',   # GE Aerospace (Aero & Defense)
+    'CAT',  # Caterpillar (Machinery)
+    ## 'HON',  # Honeywell (Conglomerates)
+    'JCI',  # Johnson Controls (Building Products)
+    ## 'ADP',  # ADP (HR)
+    'PWR',  # Quanta Services (Infrastructure)
+    'URI',  # United Rentals (Trading & Distribution)
+    'BR',   # Broadridge Financial (data processing)
+    # Information Technology
+    'NVDA', # NVIDIA Corporation (Semiconductors)
+    'TSM',  # TSMC (Semiconductors)
+    'AAPL', # Apple (Hardware)
+    'MSFT', # Microsoft Corporation (Software)
+    'IBM',  # IBM (Services)
+    'STX',  # Seagate Technology (Data Storage)
+    ## 'APH',  # Amphenol (Components)
+    # Materials
+    'LIN',  # Linde (Chemical)
+    'CRH',  # CRH (Construction)
+    'AA',   # Alcoa (Metals)
+    # Real Estate
+    'WELL', # Welltower (Health Care)
+    ## 'PLD',  # Prologis (Industrial)
+    'SPG',  # Simon Property Group (Retail)
+    'CBRE', # CBRE (Services)
+    # Utilities
+    ##'NEE',  # Nextera (Electric)
+    'CNP',  # CenterPoint Energy (Electric & Gas)
+    # Other    
+    'IAU',  # Gold ETF
+	'TLT',  # Long-Term Treasury ETF
+	'SHY',  # Short-Term Treasury ETF
+	'IBIT', # Bitcoin Trust
+	'HYG',  # High Yield Bond ETF
+	'TSLA', # Tesla Inc.
+	'BRK-B',# Berkshire Hathaway Inc.
+    'NEM',  # Newmont
+    'SH',   # Short SPY (monitor and signal to possibly stay out when above -0.1)
+]
+
+if __name__ == "__main__":
+    # Download historical data for the ETFs (daily data)
+    data = yf.download(etfs, start='2010-01-01', interval='1d')["Close"]  # end=datetime.now().strftime('%Y-%m-%d'),
+
+    # Download SPY for relative strength, and VIX for regime detection
+    spy_data = yf.download('SPY',  start='2010-01-01', interval='1d')["Close"]
+    vix_data = yf.download('^VIX', start='2010-01-01', interval='1d')["Close"].squeeze()
+
+    # Clean the data - remove stocks with insufficient recent data
+    one_year_ago = data.index[-1] - pd.DateOffset(months=12)
+    recent_data = data.loc[one_year_ago:]
+    data = data.dropna(axis=1, thresh=recent_data.shape[0])
+
+    # Align SPY and VIX data with our stock data
+    spy_data = spy_data.reindex(data.index, method='ffill')
+    vix_data = vix_data.reindex(data.index, method='ffill')
+
+    print(f"Data shape after cleaning: {data.shape}")
+    print(f"Date range: {data.index[0]} to {data.index[-1]}")
+    print(f"SPY data aligned: {len(spy_data)} days")
+
+    # Calculate composite scores using MA + Relative Strength strategy
+    print("\n=== CALCULATING MA-ONLY COMPOSITE SCORES ===")
+    composite_scores, rsi_z, ma_diff_z, ma_deriv_z, rel_strength_z = calculate_composite_scores(
+        data,
+        spy_data,
+        rsi_window=14,
+        ma_short=50,
+        ma_long=200,
+        derivative_window=5,
+        zscore_window=126,  # reset this after fixing zscore code as the optimal number
+        zscore_method='rolling',  # switch to rolling z-scores for time-series normalization
+        rel_strength_window=20
+    )
+
+    # Velocity blend config — tune here, then run backtest_experiments.py to compare
+    velocity_cfg = VelocityConfig(
+        velocity_window=10,        # N-day change in composite z-score
+        level_weight=0.7,          # weight on z-score level  (v10_L70V30 — best CAGR+Sharpe)
+        velocity_weight=0.3,       # weight on z-score velocity
+        min_level_threshold=-3.0,  # skip stocks still in complete freefall
+    )
+
+    # Apply velocity blend: save original scores for the floor filter
+    base_composite_scores = composite_scores.copy()
+    composite_scores = apply_velocity_blend(composite_scores, velocity_cfg)
+
+    # VIX regime config — tune thresholds here, then run backtest_experiments.py to compare
+    vix_cfg = VixRegimeConfig(
+        zscore_window=60,       # rolling baseline for VIX z-score
+        elevated_zscore=1.5,    # z >= this → reduce to elevated_top_n momentum picks
+        crisis_zscore=2.5,      # z >= this → go fully defensive
+        elevated_top_n=2,       # momentum picks to keep when elevated
+        use_roc_trigger=False,  # set True to also catch fast spikes by ROC
+        roc_threshold=0.30,     # 30 % VIX rise in roc_window days triggers elevated
+    )
+
+    # Run biweekly rebalancing strategy
+    print("=== RUNNING BIWEEKLY REBALANCING STRATEGY ===")
+    portfolio_performance, rebalance_history = select_top_stocks_biweekly(
+        composite_scores, data, top_n=4, min_data_days=200, hold_days=14,
+        vix_data=vix_data, vix_config=vix_cfg,
+        base_composite_scores=base_composite_scores, velocity_config=velocity_cfg,
+    )
+
+    if not portfolio_performance.empty:
+        # Calculate performance metrics
+        returns = portfolio_performance['Portfolio_Return']
+        performance_metrics = calculate_performance_metrics(returns, is_daily=True)
+
+        # Create cumulative return series for plotting
+        cumulative_returns = (1 + returns).cumprod()
+
+        # Plot portfolio performance
+        plt.figure(figsize=(12, 8))
+
+        # Plot 1: Cumulative returns
+        plt.subplot(2, 1, 1)
+        plt.plot(portfolio_performance['Date'], cumulative_returns, label='RSI/MA Portfolio', linewidth=2)
+        plt.title('RSI/MA Strategy Backtest Results (Biweekly Rebalancing)')
+        plt.ylabel('Cumulative Return')
+        plt.legend()
+        plt.grid(alpha=0.3)
+
+        # Plot 2: Daily returns
+        plt.subplot(2, 1, 2)
+        plt.plot(portfolio_performance['Date'], returns * 100, alpha=0.7)
+        plt.title('Daily Returns (%)')
+        plt.ylabel('Return (%)')
+        plt.xlabel('Date')
+        plt.grid(alpha=0.3)
+
+        plt.tight_layout()
+        plt.show()
+
+        # Print performance summary
+        print("\n=== MA-ONLY STRATEGY BACKTEST RESULTS ===")
+        for metric, value in performance_metrics.items():
+            print(f"{metric}: {value}")
+
+        # Show recent rebalancing history
+        print(f"\n=== REBALANCING HISTORY (Last 10 rebalances) ===")
+        for rebalance in rebalance_history[-10:]:
+            date_str = rebalance['Date'].strftime('%Y-%m-%d')
+            stocks = ', '.join(rebalance['Selected_Stocks'])
+            print(f"{date_str}: {stocks}")
+
+        # Export results
+        portfolio_performance.to_csv('rsi_ma_portfolio_performance.csv', index=False)
+        composite_scores.to_csv('rsi_ma_composite_scores.csv')
+
+        # Export rebalancing history
+        rebalance_df = pd.DataFrame(rebalance_history)
+        rebalance_df.to_csv('rsi_ma_rebalance_history.csv', index=False)
+
+        print(f"\nResults exported:")
+        print(f"- Portfolio performance: rsi_ma_portfolio_performance.csv")
+        print(f"- Composite scores: rsi_ma_composite_scores.csv")
+        print(f"- Rebalancing history: rsi_ma_rebalance_history.csv")
+
+        # Show current holdings
+        if len(rebalance_history) > 0:
+            latest_rebalance = rebalance_history[-1]
+            print(f"\n=== CURRENT HOLDINGS (Last rebalance: {latest_rebalance['Date'].strftime('%Y-%m-%d')}) ===")
+            for i, (stock, score) in enumerate(latest_rebalance['Scores'].items()):
+                print(f"{i+1}. {stock}: {score:.3f}")
+
+            # Plot recent performance of current holdings
+            plot_momentum_portolio(data, latest_rebalance['Selected_Stocks'])
+    else:
+        print("Insufficient data for backtesting")
+
+    # Calculate and export individual stock performance
+    print("\n=== CALCULATING INDIVIDUAL STOCK PERFORMANCE ===")
+    individual_performance = calculate_individual_stock_performance(data)
+    individual_performance = individual_performance.sort_values('CAGR', ascending=False)
+    individual_performance.to_csv('rsi_ma_individual_stock_performance.csv', index=False)
+    print(f"Individual stock performance exported to rsi_ma_individual_stock_performance.csv")
+
+    # Display top performers
+    print("\n=== TOP PERFORMING STOCKS (by CAGR) ===")
+    print(individual_performance.head(10))
+
+    # Calculate correlation matrices for different time periods
+    print("\n=== CALCULATING CORRELATION MATRICES ===")
+
+    # Calculate returns for correlation analysis
+    returns_data = data.pct_change().dropna()
+
+    # Define periods
+    periods = [20, 50, 200]
+    correlation_matrices = {}
+
+    for period in periods:
+        if len(returns_data) >= period:
+            # Get most recent period returns
+            recent_returns = returns_data.iloc[-period:]
+
+            # Calculate correlation matrix
+            corr_matrix = recent_returns.corr()
+            correlation_matrices[period] = corr_matrix
+
+            # Export to CSV
+            corr_filename = f'rsi_ma_correlation_{period}d.csv'
+            corr_matrix.to_csv(corr_filename)
+
+            # Calculate and display summary statistics
+            # Get upper triangle of correlation matrix (excluding diagonal)
+            mask = np.triu(np.ones_like(corr_matrix, dtype=bool), k=1)
+            upper_triangle = corr_matrix.where(mask)
+            correlations = upper_triangle.stack()
+
+            print(f"\n=== {period}-DAY CORRELATION MATRIX SUMMARY ===")
+            print(f"Period: Last {period} trading sessions")
+            print(f"Mean correlation: {correlations.mean():.3f}")
+            print(f"Median correlation: {correlations.median():.3f}")
+            print(f"Min correlation: {correlations.min():.3f}")
+            print(f"Max correlation: {correlations.max():.3f}")
+            print(f"Std deviation: {correlations.std():.3f}")
+            print(f"Exported to: {corr_filename}")
+
+            # Show highest correlations
+            print(f"\nTop 10 highest correlations ({period} days):")
+            top_corr = correlations.sort_values(ascending=False).head(10)
+            for (stock1, stock2), corr_val in top_corr.items():
+                print(f"  {stock1} - {stock2}: {corr_val:.3f}")
+
+            # Show lowest correlations
+            print(f"\nTop 10 lowest correlations ({period} days):")
+            low_corr = correlations.sort_values(ascending=True).head(10)
+            for (stock1, stock2), corr_val in low_corr.items():
+                print(f"  {stock1} - {stock2}: {corr_val:.3f}")
+        else:
+            print(f"\nInsufficient data for {period}-day correlation matrix")
+
+    print("\n=== RSI/MA STRATEGY SETUP COMPLETE ===")
+    print("Files created:")
+    print("- rsi_ma_composite_scores.csv: Daily composite scores for all stocks")
+    print("- rsi_ma_stock_selections.csv: Top stock selections by date")
+    print("- rsi_ma_individual_stock_performance.csv: Individual stock performance metrics")
+    print("- rsi_ma_correlation_20d.csv: 20-day correlation matrix")
+    print("- rsi_ma_correlation_50d.csv: 50-day correlation matrix")
+    print("- rsi_ma_correlation_200d.csv: 200-day correlation matrix")

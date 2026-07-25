@@ -1,3 +1,14 @@
 .venv/*
+.venv-1/*
+__pycache__/
+*.pyc
+
+# Generated data and reports
 *.xlsx
 *.csv
+.price_cache/
+
+# ...but the universe and its dated snapshots are source, not output.
+# They stay tracked so universe changes show up as reviewable diffs.
+!universe.csv
+!snapshots/universe/*.csv
