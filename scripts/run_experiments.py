@@ -23,7 +23,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from momentum.config import VelocityConfig, VixRegimeConfig
+from momentum.config import GraduatedVixConfig, VelocityConfig, VixRegimeConfig
 from momentum.data import load_data
 from momentum.experiments import (Experiment, export_comparison, legacy_config,
                                   print_comparison, print_subperiods,
@@ -228,6 +228,275 @@ def suite_correlation():
     return exps
 
 
+def suite_ladder():
+    """
+    Track A — graduated absolute-level VIX ladder vs the legacy z-score regime.
+
+    Two independent changes are being tested, and the sweep separates them:
+
+      1. ABSOLUTE LEVEL instead of z-score.  A z-score measures deviation from a
+         recent baseline, so a sustained moderate VIX becomes the new baseline
+         and stops registering — 88% of days in the 15-20 band were classified
+         'normal'.  VIX has spent 52% of the last three years in that band.
+
+      2. DAILY evaluation instead of rebalance-gated.  Of days the old detector
+         flagged as crisis, only 25% were actually holding defensive positions;
+         the rest were riding pre-crisis picks waiting for the clock.
+
+    'ladder_X_rebalance_only' isolates (1) by keeping the old timing, so the
+    difference against 'ladder_X' is the value of daily evaluation alone.
+
+    Ladder shapes, as momentum slots out of 4 per band [<15, 15-20, 20-25, 25+]:
+      gentle    [4,4,3,1]  barely reacts until genuinely stressed
+      moderate  [4,3,2,0]  steps down through every band
+      steep     [4,3,1,0]  aggressive de-risking
+      binary    [4,4,4,0]  a control: no graduation at all, just a cliff at 25
+    """
+    base = production_config()
+    shapes = {
+        "gentle":   [4, 4, 3, 1],
+        "moderate": [4, 3, 2, 0],
+        "steep":    [4, 3, 1, 0],
+        "binary":   [4, 4, 4, 0],
+    }
+
+    exps = [
+        variant(base, "legacy_zscore_vix", "current production regime",
+                graduated_vix=None),
+        variant(base, "no_regime", "no volatility overlay at all",
+                vix=None, graduated_vix=None),
+    ]
+
+    for name, slots in shapes.items():
+        exps.append(
+            variant(base, f"ladder_{name}", f"slots {slots}, daily",
+                    vix=None,
+                    graduated_vix=GraduatedVixConfig(momentum_slots=slots))
+        )
+
+    # Isolate daily evaluation from the absolute-level change.
+    exps.append(
+        variant(base, "ladder_moderate_reb_only", "same ladder, rebalance-gated",
+                vix=None,
+                graduated_vix=GraduatedVixConfig(momentum_slots=[4, 3, 2, 0],
+                                                 evaluate_daily=False))
+    )
+
+    # Hysteresis: how much confirmation before re-risking.
+    for step_up in (1, 5, 10):
+        exps.append(
+            variant(base, f"ladder_mod_up{step_up}d", f"re-risk after {step_up}d",
+                    vix=None,
+                    graduated_vix=GraduatedVixConfig(momentum_slots=[4, 3, 2, 0],
+                                                     step_up_days=step_up))
+        )
+
+    # Smoothing VIX as an alternative to hysteresis.
+    for window in (5, 10):
+        exps.append(
+            variant(base, f"ladder_mod_smooth{window}", f"{window}d VIX average",
+                    vix=None,
+                    graduated_vix=GraduatedVixConfig(momentum_slots=[4, 3, 2, 0],
+                                                     smoothing_window=window))
+        )
+
+    # Band placement: does the 15 edge matter, given 52% of recent days sit there?
+    exps.append(
+        variant(base, "ladder_edges_17_22_27", "shifted bands",
+                vix=None,
+                graduated_vix=GraduatedVixConfig(band_edges=[17.0, 22.0, 27.0],
+                                                 momentum_slots=[4, 3, 2, 0]))
+    )
+    return exps
+
+
+def suite_ladder_extreme():
+    """
+    Track A, second pass — does the absolute ladder survive at genuine extremes?
+
+    The first ladder sweep rejected the hypothesis as specified: every graduated
+    absolute-level ladder lost to the z-score regime on BOTH return and
+    drawdown, and lost to having no overlay at all.
+
+    Two mechanisms explain that, and this suite tests whether either can be
+    dodged rather than assuming the whole idea is dead:
+
+    1. The ladder was on far too often.  VIX >= 15 is 65% of days, and the
+       15-20 band earns +19.1% annualized.  De-risking there swaps a 19% return
+       for a ~2% one.  The band table describes conditional MARKET returns; it
+       is not evidence that de-risking in those bands helps.
+
+    2. Absolute VIX lags.  By the time it has ARRIVED above 25, the drawdown has
+       largely happened — you sell the bottom and miss the recovery.  A z-score
+       fires on unusual vol relative to a recent baseline, closer to the onset.
+
+    If (1) is the whole story, pushing the bands out to 25/30/35 — where the
+    band really is dire and infrequent — should recover the loss.  If (2)
+    dominates, no absolute threshold will help, because the timing is wrong at
+    every level.  These two outcomes are distinguishable, which is the point.
+    """
+    base = production_config()
+    exps = [
+        variant(base, "legacy_zscore_vix", "current production regime",
+                graduated_vix=None),
+        variant(base, "no_regime", "no volatility overlay", vix=None,
+                graduated_vix=None),
+    ]
+
+    ladders = {
+        "e25_30_35_mild":  ([25.0, 30.0, 35.0], [4, 4, 3, 1]),
+        "e25_30_35_steep": ([25.0, 30.0, 35.0], [4, 3, 2, 0]),
+        "e30_35_40":       ([30.0, 35.0, 40.0], [4, 3, 2, 0]),
+        "e28_35_45_cliff": ([28.0, 35.0, 45.0], [4, 4, 2, 0]),
+        "only_above_30":   ([30.0, 40.0, 50.0], [4, 0, 0, 0]),
+    }
+    for name, (edges, slots) in ladders.items():
+        exps.append(
+            variant(base, f"ladder_{name}", f"edges {edges}, slots {slots}",
+                    vix=None,
+                    graduated_vix=GraduatedVixConfig(band_edges=edges,
+                                                     momentum_slots=slots))
+        )
+
+    # Does re-risking faster recover the missed recovery? If mechanism (2) is
+    # real, a short step_up should help materially at extreme edges.
+    for step_up in (1, 10):
+        exps.append(
+            variant(base, f"ladder_e25_up{step_up}d", f"re-risk after {step_up}d",
+                    vix=None,
+                    graduated_vix=GraduatedVixConfig(band_edges=[25.0, 30.0, 35.0],
+                                                     momentum_slots=[4, 3, 2, 0],
+                                                     step_up_days=step_up))
+        )
+    return exps
+
+
+def suite_ladder_zscore():
+    """
+    Track A, third pass — keep the machinery, change the basis.
+
+    The spec bundled two changes and only one is refuted. Absolute-level banding
+    fails structurally (see suite_ladder_extreme). But GRADUATION, DAILY
+    EVALUATION and HYSTERESIS were never tested on a basis that works — they
+    were only tested inside the broken ladder, where the basis dominated.
+
+    This runs the same ladder machinery on VIX z-score bands, isolating each
+    surviving idea against the current production regime:
+
+      graduation      3 slots at z>=1.0 rather than jumping straight to 2
+      daily eval      exposure re-decided every day, not only at rebalance.
+                      This is the direct fix for "only 25% of crisis-flagged
+                      days were actually holding defensive positions".
+      hysteresis      confirmation before re-risking, to stop boundary churn
+
+    'zladder_match_legacy' reproduces the production thresholds (elevated z=1.5
+    -> 2 slots, crisis z=2.5 -> 0) in ladder form. It should land close to
+    legacy_zscore_vix; a large gap would mean the ladder machinery itself is
+    doing something unintended, and any apparent win from the variants below
+    would be an artifact rather than a result.
+    """
+    base = production_config()
+    exps = [
+        variant(base, "legacy_zscore_vix", "current production regime",
+                graduated_vix=None),
+        variant(base, "no_regime", "no volatility overlay", vix=None,
+                graduated_vix=None),
+    ]
+
+    def zladder(name, note, **kwargs):
+        cfg = dict(band_basis="zscore", zscore_window=60,
+                   band_edges=[1.5, 2.5, 3.5], momentum_slots=[4, 2, 0, 0])
+        cfg.update(kwargs)
+        return variant(base, name, note, vix=None,
+                       graduated_vix=GraduatedVixConfig(**cfg))
+
+    # Control: production thresholds expressed as a ladder, rebalance-gated.
+    exps.append(zladder("zladder_match_legacy", "legacy thresholds, no daily eval",
+                        evaluate_daily=False))
+    # Same thresholds, daily evaluation — isolates the timing change alone.
+    exps.append(zladder("zladder_daily", "legacy thresholds, DAILY"))
+
+    # Graduation: an intermediate step instead of 4 -> 2.
+    exps.append(zladder("zladder_grad", "graduated 4/3/2/0, daily",
+                        band_edges=[1.0, 1.75, 2.5],
+                        momentum_slots=[4, 3, 2, 0]))
+    exps.append(zladder("zladder_grad_gentle", "graduated 4/3/1, later edges",
+                        band_edges=[1.5, 2.25, 3.0],
+                        momentum_slots=[4, 3, 1, 0]))
+
+    # Hysteresis on the re-risk side, with daily evaluation live.
+    for step_up in (1, 5, 10):
+        exps.append(zladder(f"zladder_daily_up{step_up}d",
+                            f"re-risk after {step_up}d", step_up_days=step_up))
+
+    # Does a slower baseline detect transitions better?
+    for window in (30, 120):
+        exps.append(zladder(f"zladder_daily_win{window}",
+                            f"{window}d z-score baseline", zscore_window=window))
+    return exps
+
+
+def suite_overnight():
+    """
+    Is daily de-risking a bad signal, or a good signal you cannot reach?
+
+    Daily evaluation lost 2.5pp of CAGR under realistic (next_open) execution.
+    Two very different explanations fit that:
+
+      A. The signal is wrong — reacting daily chases noise, and no execution
+         improvement would rescue it.
+      B. The signal is right but unreachable — a regime decision taken on
+         close(T) cannot be acted on until open(T+1), and a large share of
+         volatility is realized in the overnight gap. You sell AFTER the gap
+         down, banking the loss without avoiding it, then buy back after the
+         gap up.
+
+    Running each config under both execution conventions separates them. If
+    daily evaluation is competitive under 'same_close' and only loses under
+    'next_open', explanation B holds: the idea is sound and the constraint is
+    the trading window, not the model.
+
+    'same_close' is not achievable — it fills at the close that generated the
+    signal. It is included strictly as a diagnostic upper bound.
+    """
+    base = production_config()
+
+    def zcfg(**kwargs):
+        cfg = dict(band_basis="zscore", zscore_window=60,
+                   band_edges=[1.5, 2.5, 3.5], momentum_slots=[4, 2, 0, 0])
+        cfg.update(kwargs)
+        return GraduatedVixConfig(**cfg)
+
+    exps = []
+    for execution in ("same_close", "next_open"):
+        tag = "SC" if execution == "same_close" else "NO"
+        exps.append(
+            variant(base, f"rebalance_gated_{tag}", f"{execution}",
+                    vix=None, graduated_vix=zcfg(evaluate_daily=False),
+                    execution__execute_at=execution)
+        )
+        exps.append(
+            variant(base, f"daily_{tag}", f"{execution}",
+                    vix=None, graduated_vix=zcfg(evaluate_daily=True),
+                    execution__execute_at=execution)
+        )
+        # Zero-cost twins, so the comparison is not confounded by the extra
+        # slippage daily evaluation incurs from its higher turnover.
+        exps.append(
+            variant(base, f"daily_{tag}_0bps", f"{execution}, no slippage",
+                    vix=None, graduated_vix=zcfg(evaluate_daily=True),
+                    execution__execute_at=execution,
+                    execution__slippage_bps=0.0)
+        )
+        exps.append(
+            variant(base, f"rebalance_gated_{tag}_0bps", f"{execution}, no slippage",
+                    vix=None, graduated_vix=zcfg(evaluate_daily=False),
+                    execution__execute_at=execution,
+                    execution__slippage_bps=0.0)
+        )
+    return exps
+
+
 def suite_vix():
     """Legacy VIX regime thresholds. Superseded by the Track A ladder."""
     base = production_config()
@@ -279,6 +548,10 @@ SUITES = {
                    "level_only"),
     "correlation": (suite_correlation, "rsi_ma_correlation_filter_comparison.csv",
                     "no_corr_filter"),
+    "ladder":    (suite_ladder,    "rsi_ma_ladder_comparison.csv", "legacy_zscore_vix"),
+    "ladder2":   (suite_ladder_extreme, "rsi_ma_ladder_extreme.csv", "legacy_zscore_vix"),
+    "zladder":   (suite_ladder_zscore, "rsi_ma_ladder_zscore.csv", "legacy_zscore_vix"),
+    "overnight": (suite_overnight, "rsi_ma_overnight_gap.csv", "rebalance_gated_NO"),
     "vix":       (suite_vix,       "rsi_ma_vix_regime_comparison.csv",
                   "no_vix_filter"),
     "zscore":    (suite_zscore,    "rsi_ma_zscore_comparison.csv",

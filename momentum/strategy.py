@@ -68,6 +68,7 @@ def run_strategy(prices: PriceData, config: ModelConfig,
         base_composite_scores=base_scores,
         velocity_config=config.velocity,
         correlation_config=config.correlation,
+        graduated_config=config.graduated_vix,
         close=prices.close,
         verbose=verbose,
     )

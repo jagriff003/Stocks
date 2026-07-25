@@ -172,6 +172,139 @@ class ExecutionConfig:
 # --------------------------------------------------------------------------
 
 @dataclass
+class GraduatedVixConfig:
+    """
+    Track A — absolute-level VIX ladder, evaluated daily.
+
+    Replaces the z-score regime, which had two structural problems:
+
+      1. It measured deviation from a recent baseline, not absolute level.  A
+         sustained moderate VIX becomes the new baseline and stops registering:
+         88% of days in the 15-20 band were classified 'normal'.  That band's
+         realized Sharpe was 0.88 against 3.30 below 15, and VIX has spent 52%
+         of the last three years there.
+
+      2. It only acted at a scheduled rebalance.  Of days flagged 'crisis', just
+         25% were actually holding defensive positions — the other 75% were
+         riding pre-crisis picks because no rebalance had come due.
+
+    The measured staircase this ladder is fitted to (backtest, by absolute band):
+
+        VIX <15    Sharpe  3.30    ann. return  48.6%
+        VIX 15-20  Sharpe  0.88    ann. return  19.1%
+        VIX 20-25  Sharpe -0.99    ann. return -13.5%
+        VIX 25+    Sharpe -1.48    ann. return -35.0%
+
+    Monotonic, not a cliff — so the response is graduated, not binary.
+
+    band_edges / momentum_slots
+        `momentum_slots[i]` is how many of `top_n` stay in momentum names while
+        VIX sits in band i.  len(momentum_slots) == len(band_edges) + 1.
+        Remaining slots go to `defensive_symbols`.
+
+        Ranking survives at every band but the last: the strategy keeps leaning
+        into the best available opportunity rather than defaulting to cash, and
+        only abandons relative selection when conditions are genuinely dire.
+        A ladder with 0 anywhere but the final band contradicts that.
+
+    step_down_days / step_up_days
+        Hysteresis, asymmetric by default.  De-risking on the first day in a
+        worse band is deliberate — the cost of being late is the whole point of
+        Track A.  Re-risking waits for confirmation, because VIX oscillating
+        around a boundary would otherwise churn the book at 2x slippage per
+        round trip.
+
+    smoothing_window
+        Rolling mean applied to VIX before banding.  1 = spot.  Larger values
+        stop a single intraday spike moving the ladder, at the cost of reacting
+        later.  An alternative to hysteresis, not a complement — sweep both.
+    """
+    enabled: bool = True
+
+    band_basis: str = "level"       # 'level' | 'zscore'
+    #   MEASURED 2026-07-25, and the reason this field exists:
+    #
+    #   'level' — absolute VIX. Track A's original proposal. REJECTED on
+    #   evidence. Every ladder shape lost to the z-score regime on BOTH return
+    #   and drawdown, and lost to having no overlay at all. Pushing the bands
+    #   out to 30/35/40 recovered the return (17.02% vs 16.96% for no overlay)
+    #   but essentially none of the drawdown protection (-28.50% vs -29.02% for
+    #   no overlay, against -19.23% for the z-score regime).
+    #
+    #   The reason is structural, not a tuning problem: absolute VIX crossing a
+    #   threshold IS the drawdown. It is coincident-to-lagging, so acting on it
+    #   sells into the loss and misses the recovery. No threshold fixes that,
+    #   which is why every band placement failed the same way.
+    #
+    #   The band table that motivated the ladder describes conditional MARKET
+    #   returns, not the value of de-risking. VIX 15-20 earns +19.1% annualized;
+    #   de-risking across it swaps a 19% return for roughly 2%.
+    #
+    #   'zscore' — bands on the VIX z-score instead, keeping the graduation,
+    #   daily evaluation and hysteresis that the ladder machinery provides while
+    #   using the basis that actually detects transitions early.
+
+    zscore_window: int = 60         # used when band_basis='zscore'
+
+    band_edges: List[float] = field(default_factory=lambda: [15.0, 20.0, 25.0])
+    momentum_slots: List[int] = field(default_factory=lambda: [4, 3, 2, 0])
+
+    defensive_symbols: List[str] = field(default_factory=lambda: ["SHY", "TLT", "IAU"])
+
+    # --- hysteresis ---
+    step_down_days: int = 1     # days in a worse band before de-risking
+    step_up_days: int = 3       # days in a better band before re-risking
+    smoothing_window: int = 1   # rolling mean on VIX before banding
+
+    evaluate_daily: bool = False
+    #   MEASURED 2026-07-25 — daily evaluation was REJECTED on evidence, on a
+    #   z-score basis where the regime signal itself works:
+    #
+    #       rebalance-gated  CAGR 20.05%  Sharpe 0.94  MaxDD -18.80%  130 trd/yr
+    #       daily            CAGR 17.52%  Sharpe 0.81  MaxDD -18.94%  165 trd/yr
+    #
+    #   It costs 2.53pp of CAGR to buy 0.14pp of drawdown. All nine daily
+    #   variants tested lost; none recovered it through hysteresis or smoothing.
+    #
+    #   Why: the 14-day rebalance clock was acting as an unintentional noise
+    #   filter. Re-deciding exposure daily reacts to transient z-score spikes —
+    #   de-risking into a dip and re-risking higher. Turnover rises from 130 to
+    #   165 trades/year, which is ~0.8pp of slippage before any whipsaw cost.
+    #
+    #   This reframes the observation that only 25% of crisis-flagged days were
+    #   actually holding defensive positions. That is not a defect to fix; it is
+    #   the strategy staying invested through transient flags, which the data
+    #   says was the right call.
+    #
+    #   Track B's per-stock rank exits are a DIFFERENT question and are not
+    #   covered by this result — that is about a single position's own decay,
+    #   not a portfolio-wide risk dial.
+
+    def __post_init__(self):
+        if len(self.momentum_slots) != len(self.band_edges) + 1:
+            raise ValueError(
+                f"momentum_slots must have {len(self.band_edges) + 1} entries "
+                f"for {len(self.band_edges)} band edges, got "
+                f"{len(self.momentum_slots)}"
+            )
+        if list(self.band_edges) != sorted(self.band_edges):
+            raise ValueError("band_edges must be ascending")
+        if any(a < b for a, b in zip(self.momentum_slots, self.momentum_slots[1:])):
+            raise ValueError(
+                "momentum_slots must be non-increasing — a higher VIX band "
+                "cannot carry more momentum exposure than a calmer one"
+            )
+
+    @property
+    def band_labels(self) -> List[str]:
+        labels = [f"<{self.band_edges[0]:g}"]
+        for lo, hi in zip(self.band_edges, self.band_edges[1:]):
+            labels.append(f"{lo:g}-{hi:g}")
+        labels.append(f"{self.band_edges[-1]:g}+")
+        return labels
+
+
+@dataclass
 class CorrelationConfig:
     """
     Correlation-aware selection and universe screening.
@@ -316,7 +449,10 @@ class ModelConfig:
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     vix: Optional[VixRegimeConfig] = None
     correlation: Optional[CorrelationConfig] = field(default_factory=CorrelationConfig)
-    graduated_vix: Optional[Any] = None   # GraduatedVixConfig, set in Phase 2
+    graduated_vix: Optional[GraduatedVixConfig] = None
+    #   When set, supersedes `vix` entirely — the two regime systems are
+    #   alternatives, not layers. Set `vix=None` alongside it to make that
+    #   explicit in snapshots.
     top_n: int = 4
     hold_days: int = 14
     min_data_days: int = 200

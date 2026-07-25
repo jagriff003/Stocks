@@ -20,11 +20,12 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from .config import (CorrelationConfig, ExecutionConfig, VelocityConfig,
-                     VixRegimeConfig)
+from .config import (CorrelationConfig, ExecutionConfig, GraduatedVixConfig,
+                     VelocityConfig, VixRegimeConfig)
 from .correlation import RollingCorrelation, select_diversified
 from .metrics import (calculate_performance_metrics, calculate_turnover_metrics)
-from .regime import CRISIS, ELEVATED, NORMAL, calculate_vix_regime
+from .regime import (CRISIS, ELEVATED, NORMAL, calculate_vix_regime,
+                     graduated_regime)
 
 
 @dataclass
@@ -58,6 +59,7 @@ def build_target_portfolios(composite_scores: pd.DataFrame,
                             base_composite_scores: Optional[pd.DataFrame] = None,
                             velocity_config: Optional[VelocityConfig] = None,
                             correlation_config: Optional[CorrelationConfig] = None,
+                            graduated_config: Optional[GraduatedVixConfig] = None,
                             close: Optional[pd.DataFrame] = None,
                             verbose: bool = False):
     """
@@ -104,6 +106,16 @@ def build_target_portfolios(composite_scores: pd.DataFrame,
         regime_series, _ = calculate_vix_regime(vix_data, vix_config)
         vix_regime = regime_series.reindex(composite_scores.index).ffill()
 
+    # --- Track A: graduated absolute-level ladder ---
+    ladder = None
+    use_ladder = graduated_config is not None and graduated_config.enabled
+    if use_ladder:
+        if vix_data is None:
+            raise ValueError("graduated VIX ladder requires vix_data")
+        ladder = graduated_regime(vix_data, graduated_config)
+        ladder = ladder.reindex(composite_scores.index).ffill().bfill()
+        ladder["momentum_slots"] = ladder["momentum_slots"].astype(int)
+
     # Cumulative count of non-null scores per stock, so the "enough history"
     # filter is a lookup instead of a re-scan of the whole column per rebalance.
     history_counts = composite_scores.notna().cumsum()
@@ -112,7 +124,46 @@ def build_target_portfolios(composite_scores: pd.DataFrame,
     rebalance_history: List[Dict] = []
 
     current_portfolio: List[str] = []
+    current_ranked: Optional[pd.Series] = None
     last_rebalance_date: Optional[pd.Timestamp] = None
+    last_slots: Optional[int] = None
+
+    def correlation_open(date) -> bool:
+        """Is the correlation filter armed on this date?"""
+        if rolling_corr is None:
+            return False
+        if correlation_config.apply_above_vix is None:
+            return True
+        level = vix_levels.get(date) if vix_levels is not None else None
+        return (level is not None and pd.notna(level)
+                and level >= correlation_config.apply_above_vix)
+
+    def pick_momentum(ranked: pd.Series, date, n: int
+                      ) -> Tuple[List[str], Optional[object]]:
+        """Top `n` by rank, correlation-filtered when the gate is open."""
+        if n <= 0:
+            return [], None
+        if not correlation_open(date):
+            return ranked.head(n).index.tolist(), None
+
+        exempt_syms = ()
+        if correlation_config is not None and not correlation_config.apply_to_defensive:
+            if graduated_config is not None:
+                exempt_syms = graduated_config.defensive_symbols
+            elif vix_config is not None:
+                exempt_syms = vix_config.defensive_symbols
+
+        trace = select_diversified(ranked, rolling_corr.at(date),
+                                   correlation_config, n, exempt=exempt_syms)
+        return trace.selected, trace
+
+    def build_from_ladder(ranked: pd.Series, date, n_slots: int) -> List[str]:
+        """Momentum picks for the current band, defensive fill for the rest."""
+        n_slots = max(0, min(n_slots, top_n, len(ranked)))
+        picks, _ = pick_momentum(ranked, date, n_slots)
+        fill = [s for s in graduated_config.defensive_symbols
+                if s in price_columns and s not in picks]
+        return picks + fill[:max(0, top_n - len(picks))]
 
     for date in dates:
         due = (last_rebalance_date is None
@@ -139,59 +190,45 @@ def build_target_portfolios(composite_scores: pd.DataFrame,
                 valid_stocks.append(stock)
 
             if len(valid_stocks) >= top_n:
-                regime = NORMAL
-                if vix_regime is not None:
-                    r = vix_regime.get(date)
-                    if r is not None and not pd.isna(r):
-                        regime = r
-
                 ranked = valid_scores[valid_stocks].sort_values(ascending=False)
-
-                # Correlation risk is regime-conditional: in a calm tape,
-                # correlated winners are concentration you are being paid for.
-                # Below the gate, rank alone decides.
-                corr_live = rolling_corr is not None
-                if corr_live and correlation_config.apply_above_vix is not None:
-                    level = vix_levels.get(date) if vix_levels is not None else None
-                    corr_live = (level is not None and pd.notna(level)
-                                 and level >= correlation_config.apply_above_vix)
-
-                corr = rolling_corr.at(date) if corr_live else None
-                exempt = (vix_config.defensive_symbols
-                          if (vix_config is not None
-                              and correlation_config is not None
-                              and not correlation_config.apply_to_defensive)
-                          else ())
-
-                def pick(n: int) -> Tuple[List[str], Optional[object]]:
-                    """Top `n` by rank, correlation-filtered when the gate is open."""
-                    if not corr_live or n <= 0:
-                        return ranked.head(n).index.tolist(), None
-                    trace = select_diversified(ranked, corr, correlation_config,
-                                               n, exempt=exempt)
-                    return trace.selected, trace
-
                 trace = None
-                if regime == CRISIS and vix_config is not None:
-                    available = [s for s in vix_config.crisis_symbols
-                                 if s in price_columns]
-                    new_portfolio = available or pick(top_n)[0]
 
-                elif regime == ELEVATED and vix_config is not None:
-                    n_momentum = min(vix_config.elevated_top_n, len(valid_stocks))
-                    momentum_picks, trace = pick(n_momentum)
-                    fill = [s for s in vix_config.defensive_symbols
-                            if s in price_columns and s not in momentum_picks]
-                    new_portfolio = momentum_picks + fill[:max(0, top_n - n_momentum)]
-
+                if use_ladder:
+                    # Ranking is recomputed on the hold clock; how much of it
+                    # gets used is decided daily, below.
+                    slots = int(ladder.at[date, "momentum_slots"])
+                    new_portfolio = build_from_ladder(ranked, date, slots)
+                    regime = graduated_config.band_labels[int(ladder.at[date, "band"])]
+                    last_slots = slots
                 else:
-                    new_portfolio, trace = pick(top_n)
+                    regime = NORMAL
+                    if vix_regime is not None:
+                        r = vix_regime.get(date)
+                        if r is not None and not pd.isna(r):
+                            regime = r
+
+                    if regime == CRISIS and vix_config is not None:
+                        available = [s for s in vix_config.crisis_symbols
+                                     if s in price_columns]
+                        new_portfolio = available or pick_momentum(ranked, date, top_n)[0]
+
+                    elif regime == ELEVATED and vix_config is not None:
+                        n_momentum = min(vix_config.elevated_top_n, len(valid_stocks))
+                        momentum_picks, trace = pick_momentum(ranked, date, n_momentum)
+                        fill = [s for s in vix_config.defensive_symbols
+                                if s in price_columns and s not in momentum_picks]
+                        new_portfolio = (momentum_picks
+                                         + fill[:max(0, top_n - n_momentum)])
+
+                    else:
+                        new_portfolio, trace = pick_momentum(ranked, date, top_n)
 
                 record = {
                     "Date": date,
                     "Selected_Stocks": new_portfolio,
                     "Scores": valid_scores.reindex(new_portfolio).to_dict(),
                     "Regime": regime,
+                    "Trigger": "rebalance",
                 }
                 if trace is not None:
                     record["Corr_Threshold"] = trace.threshold
@@ -202,11 +239,41 @@ def build_target_portfolios(composite_scores: pd.DataFrame,
                 rebalance_history.append(record)
 
                 current_portfolio = new_portfolio
+                current_ranked = ranked
                 last_rebalance_date = date
 
                 if verbose:
-                    print(f"Rebalanced on {date:%Y-%m-%d} [{regime.upper()}]: "
+                    print(f"Rebalanced on {date:%Y-%m-%d} [{regime}]: "
                           f"{', '.join(new_portfolio)}")
+
+        # --- Track A: daily exposure decision, off the rebalance clock ---
+        #
+        # The old design could only change exposure at a scheduled rebalance,
+        # which is why only 25% of crisis-flagged days were actually holding
+        # defensive positions — the rest were riding pre-crisis picks waiting
+        # for the clock. Re-deciding daily is the fix. Selection still moves on
+        # the hold clock; only the risk dial moves daily.
+        if (use_ladder and graduated_config.evaluate_daily
+                and current_ranked is not None and not due):
+            slots = int(ladder.at[date, "momentum_slots"])
+            if last_slots is None or slots != last_slots:
+                new_portfolio = build_from_ladder(current_ranked, date, slots)
+                if new_portfolio != current_portfolio:
+                    band_label = graduated_config.band_labels[
+                        int(ladder.at[date, "band"])]
+                    rebalance_history.append({
+                        "Date": date,
+                        "Selected_Stocks": new_portfolio,
+                        "Scores": current_ranked.reindex(new_portfolio).to_dict(),
+                        "Regime": band_label,
+                        "Trigger": "regime_shift",
+                    })
+                    current_portfolio = new_portfolio
+                    if verbose:
+                        print(f"Regime shift {date:%Y-%m-%d} [{band_label}]: "
+                              f"{slots}/{top_n} momentum — "
+                              f"{', '.join(new_portfolio)}")
+                last_slots = slots
 
         targets[date] = list(current_portfolio)
 
