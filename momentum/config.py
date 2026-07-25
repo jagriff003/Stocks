@@ -103,17 +103,102 @@ class VelocityConfig:
     min_level_threshold
         Hard floor applied to the *level* score (never the blend): a stock in
         complete freefall is skipped no matter how strong its velocity bounce.
+
+    velocity_window
+        TRADING SESSIONS, not calendar days, and not the trading cadence.  The
+        velocity term is `z(today) - z(velocity_window sessions ago)`, so 5 is
+        roughly a one-week rate of change.
+
+        Do not confuse it with two nearby parameters:
+          ModelConfig.hold_days = 14      calendar days between rebalances —
+                                          THIS is the trading frequency
+          ScoringConfig.derivative_window = 5   sessions, the change in the MA
+                                          gap that feeds the composite itself
+
+        So there are two nested derivatives: a 5-session derivative of the
+        moving-average spread inside the composite, and a 5-session derivative
+        of the resulting composite z-score here.  Same length, different
+        objects.
     """
-    velocity_window: int = 10
+    velocity_window: int = 5
+    #   Was 10.  Changed 2026-07-25 to match the production value, so a bare
+    #   VelocityConfig() no longer silently constructs the rejected setting.
+    #   On a corrected blend scale, window 10 is beaten by disabling velocity
+    #   entirely in every subperiod; window 5 leads on CAGR, Sharpe, drawdown
+    #   and Calmar.  See production_config() for the full result and caveats —
+    #   this is an in-sample selection on a sharp surface, not a proven optimum.
     level_weight: float = 0.7
     velocity_weight: float = 0.3
     min_level_threshold: float = -3.0
     blend_normalization: str = "cross_sectional"   # 'cross_sectional' | 'rank' | 'legacy'
 
+    # --- Track C: additional derived components ---
+    #
+    # These extend the same standardize-weight-rank architecture rather than
+    # replacing it with a threshold rule.  The candidate entry rule tested
+    # previously required four conditions to clear independently (z > 1, best
+    # trailing rank <= 4, positive 1st derivative, positive 2nd derivative).  A
+    # hard AND is brittle: it discards a candidate that misses on one condition
+    # by any margin, and the four conditions are correlated enough that stacking
+    # them bought little discriminative power (53.3% precision against a 49.5%
+    # naive baseline).  Expressing them as weighted, standardized components
+    # lets a strong reading on one offset a marginal miss on another.
+    #
+    # All weights are on the same cross-sectional scale, so they are directly
+    # comparable.  Set any to 0.0 to drop that component.
+
+    acceleration_weight: float = 0.0
+    acceleration_window: int = 5
+    #   Second derivative of the composite z-score — momentum of momentum.
+    #   Targets the distinction the level cannot make: a stock decelerating from
+    #   a high level versus one accelerating from a lower one.
+    #
+    #   MEASURED 2026-07-25 — REJECTED. Left at 0.0.
+    #       weight 0.1  CAGR 15.25%  Sharpe 0.61  MaxDD -22.29%
+    #       weight 0.3  CAGR 15.42%  Sharpe 0.64  MaxDD -26.07%
+    #       weight 0.5  CAGR 12.85%  Sharpe 0.48  MaxDD -28.98%
+    #       (baseline   CAGR 19.84%  Sharpe 0.91  MaxDD -19.23%)
+    #
+    #   Derivative window sensitivity, at weight 0.3:
+    #       3-session   CAGR 12.65%  MaxDD -41.95%   <- more than double the
+    #      10-session   CAGR 14.47%  MaxDD -24.93%      baseline drawdown
+    #      15-session   CAGR 14.02%  MaxDD -23.74%
+    #
+    #   The window test is the informative one: differencing twice amplifies
+    #   noise, and a short window amplifies it catastrophically. The
+    #   acceleration term carries noise, not timing information. Even a 10%
+    #   weight costs 4.6pp of CAGR.
+    #
+    #   This also disposes of the AND-of-four candidate entry rule. Expressed as
+    #   a weighted composite (level 0.4 / velocity 0.3 / accel 0.2 / rank 0.1)
+    #   it scores 14.62% against the baseline's 19.84%. The rule looked
+    #   selective — firing on 3.2% of stock-days — because it was firing on
+    #   noise that happened to be rare, not because it was discriminating.
+
+    best_rank_weight: float = 0.0
+    best_rank_window: int = 20
+    #   Best rank achieved in the trailing window, inverted so higher is better.
+    #   Encodes "has been near the top recently" without requiring it to be
+    #   there now.
+    #
+    #   MEASURED — the only Track C component that is not actively harmful, but
+    #   still not an improvement:
+    #       weight 0.1  CAGR 19.01%  Sharpe 0.85  MaxDD -18.80%  126 trd/yr
+    #       weight 0.3  CAGR 17.57%  Sharpe 0.77  MaxDD -23.47%  122 trd/yr
+    #   At 0.1 it costs 0.83pp of CAGR for 0.43pp of drawdown and 2 fewer trades
+    #   a year. Left at 0.0; revisit only if drawdown becomes the binding
+    #   constraint.
+
     @property
     def label(self) -> str:
-        return (f"v{self.velocity_window}_L{self.level_weight:.0%}"
-                f"V{self.velocity_weight:.0%}_{self.blend_normalization[:5]}")
+        parts = [f"v{self.velocity_window}",
+                 f"L{self.level_weight:.0%}V{self.velocity_weight:.0%}"]
+        if self.acceleration_weight:
+            parts.append(f"A{self.acceleration_weight:.0%}")
+        if self.best_rank_weight:
+            parts.append(f"R{self.best_rank_weight:.0%}")
+        parts.append(self.blend_normalization[:5])
+        return "_".join(parts)
 
 
 # --------------------------------------------------------------------------

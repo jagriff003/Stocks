@@ -20,6 +20,16 @@
     "slippage_bps": 7.5,
     "tax_rate_short_term": 0.0
   },
+  "exits": {
+    "consecutive_days": 2,
+    "enabled": false,
+    "exit_rank_threshold": 6,
+    "max_exits_per_month": 0,
+    "min_hold_days": 0,
+    "min_score_gap": 0.5,
+    "mode": "rank",
+    "replacement": "immediate"
+  },
   "graduated_vix": null,
   "hold_days": 14,
   "min_data_days": 200,
@@ -35,6 +45,10 @@
   },
   "top_n": 4,
   "velocity": {
+    "acceleration_weight": 0.0,
+    "acceleration_window": 5,
+    "best_rank_weight": 0.0,
+    "best_rank_window": 20,
     "blend_normalization": "cross_sectional",
     "level_weight": 0.7,
     "min_level_threshold": -3.0,

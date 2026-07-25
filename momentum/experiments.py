@@ -22,8 +22,9 @@ import pandas as pd
 
 from .backtest import PortfolioResult
 from .metrics import calculate_performance_metrics
-from .config import (ExecutionConfig, ModelConfig, ScoringConfig,
-                     VelocityConfig, VixRegimeConfig)
+from .config import (CorrelationConfig, ExecutionConfig, ExitConfig,
+                     ModelConfig, ScoringConfig, VelocityConfig,
+                     VixRegimeConfig)
 from .data import PriceData
 from .strategy import run_strategy
 
@@ -351,10 +352,38 @@ def production_config(**overrides) -> ModelConfig:
 
 
 def legacy_config(**overrides) -> ModelConfig:
-    """The pre-refactor model exactly: legacy blend, same-close fill, no costs."""
-    config = production_config()
-    config.velocity = replace(config.velocity, blend_normalization="legacy")
-    config.execution = ExecutionConfig(execute_at="same_close", slippage_bps=0.0)
+    """
+    The pre-refactor model exactly: legacy blend, same-close fill, no costs.
+
+    Every pre-refactor value is pinned explicitly rather than inherited from
+    `production_config()`.  Inheriting was a latent bug: when production moved
+    to velocity_window=5, this function silently started describing a model
+    that never existed, and anything using it as a baseline — the execution
+    suite in particular — would have compared against the wrong reference
+    without failing.  A frozen reference has to be frozen.
+    """
+    config = ModelConfig(
+        scoring=ScoringConfig(
+            rsi_window=14, ma_short=50, ma_long=200, derivative_window=5,
+            zscore_window=126, zscore_method="rolling", rel_strength_window=20,
+        ),
+        velocity=VelocityConfig(
+            velocity_window=10,           # pre-refactor value
+            level_weight=0.7, velocity_weight=0.3,
+            min_level_threshold=-3.0,
+            blend_normalization="legacy",  # pre-refactor scale mismatch
+        ),
+        execution=ExecutionConfig(execute_at="same_close", slippage_bps=0.0),
+        vix=VixRegimeConfig(
+            zscore_window=60, elevated_zscore=1.5, crisis_zscore=2.5,
+            elevated_top_n=2,
+        ),
+        correlation=CorrelationConfig(enabled=False),   # did not exist
+        exits=ExitConfig(enabled=False),                # did not exist
+        graduated_vix=None,                             # did not exist
+        top_n=4, hold_days=14, min_data_days=200,
+        notes="frozen pre-refactor reference — do not retune",
+    )
     return _apply_overrides(config, overrides)
 
 

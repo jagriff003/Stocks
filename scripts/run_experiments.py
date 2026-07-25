@@ -618,6 +618,73 @@ def suite_swaps():
     return exps
 
 
+def suite_entry_score():
+    """
+    Track C — acceleration and trailing-rank as weighted composite components.
+
+    The candidate entry rule tested previously required four conditions to clear
+    independently: z > 1, best trailing rank <= 4, positive 1st derivative,
+    positive 2nd derivative. It fired on 3.2% of stock-days with 53.3%
+    precision against a 49.5% naive baseline — the four conditions are
+    correlated enough that stacking them bought almost no discriminative power,
+    and a hard AND discards candidates that miss one condition by any margin.
+
+    This expresses the same information as weighted, standardized components of
+    the existing composite, so a strong reading on one can offset a marginal
+    miss on another. That is the architecture the strategy already uses
+    everywhere else.
+
+    Also tests the derivative-window sensitivity the spec asked for (3/5/10/15),
+    to check whether the derivative conditions carry real information or noise.
+
+    Prior expectation, stated so the result is not read selectively: entry
+    timing on rank alone has already been measured as a wash (-0.21% once the
+    46.6% of signals that stall are counted). If acceleration carries genuine
+    timing information beyond the level, it should show here; if it does not,
+    that closes Track C rather than leaving it open.
+    """
+    base = production_config()
+    exps = [variant(base, "baseline_L70V30", "current production")]
+
+    # Acceleration weight, holding level/velocity fixed.
+    for accel in (0.1, 0.2, 0.3, 0.5):
+        exps.append(
+            variant(base, f"accel{accel:g}", f"acceleration weight {accel:g}",
+                    velocity__acceleration_weight=accel,
+                    velocity__acceleration_window=5)
+        )
+
+    # Derivative window sensitivity at a fixed weight.
+    for window in (3, 10, 15):
+        exps.append(
+            variant(base, f"accel0.3_w{window}", f"{window}-session derivative",
+                    velocity__acceleration_weight=0.3,
+                    velocity__acceleration_window=window)
+        )
+
+    # Trailing best-rank component.
+    for rank_w in (0.1, 0.3):
+        exps.append(
+            variant(base, f"bestrank{rank_w:g}", f"best-rank weight {rank_w:g}",
+                    velocity__best_rank_weight=rank_w,
+                    velocity__best_rank_window=20)
+        )
+
+    # All four components together — the weighted analogue of the AND rule.
+    exps.append(
+        variant(base, "all_four", "weighted version of the AND-of-four rule",
+                velocity__level_weight=0.4, velocity__velocity_weight=0.3,
+                velocity__acceleration_weight=0.2,
+                velocity__best_rank_weight=0.1)
+    )
+    exps.append(
+        variant(base, "accel_heavy", "acceleration-dominant",
+                velocity__level_weight=0.4, velocity__velocity_weight=0.2,
+                velocity__acceleration_weight=0.4)
+    )
+    return exps
+
+
 def suite_vix():
     """Legacy VIX regime thresholds. Superseded by the Track A ladder."""
     base = production_config()
@@ -675,6 +742,7 @@ SUITES = {
     "overnight": (suite_overnight, "rsi_ma_overnight_gap.csv", "rebalance_gated_NO"),
     "exits":     (suite_exits, "rsi_ma_exit_comparison.csv", "no_rank_exit"),
     "swaps":     (suite_swaps, "rsi_ma_swap_comparison.csv", "no_swap"),
+    "entryscore": (suite_entry_score, "rsi_ma_entry_score.csv", "baseline_L70V30"),
     "vix":       (suite_vix,       "rsi_ma_vix_regime_comparison.csv",
                   "no_vix_filter"),
     "zscore":    (suite_zscore,    "rsi_ma_zscore_comparison.csv",

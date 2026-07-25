@@ -304,18 +304,42 @@ def apply_velocity_blend(composite_scores: pd.DataFrame,
 
     mode = config.blend_normalization
     if mode == "legacy":
+        normalize = calculate_cross_sectional_zscore
         level = composite_scores
-        velocity = calculate_cross_sectional_zscore(velocity_raw)
+        velocity = normalize(velocity_raw)
     elif mode == "cross_sectional":
-        level = calculate_cross_sectional_zscore(composite_scores)
-        velocity = calculate_cross_sectional_zscore(velocity_raw)
+        normalize = calculate_cross_sectional_zscore
+        level = normalize(composite_scores)
+        velocity = normalize(velocity_raw)
     elif mode == "rank":
-        level = calculate_cross_sectional_rank(composite_scores)
-        velocity = calculate_cross_sectional_rank(velocity_raw)
+        normalize = calculate_cross_sectional_rank
+        level = normalize(composite_scores)
+        velocity = normalize(velocity_raw)
     else:
         raise ValueError(f"Unknown blend_normalization: {mode!r}")
 
-    return config.level_weight * level + config.velocity_weight * velocity
+    blended = config.level_weight * level + config.velocity_weight * velocity
+
+    # --- Track C components, each on the same cross-sectional scale ---
+    #
+    # Added as weighted terms rather than as AND-ed threshold conditions. A
+    # hard AND discards a candidate that misses one condition by any margin;
+    # weighting lets a strong reading on one offset a marginal miss elsewhere,
+    # which is the same reason the core composite is a blend and not a filter.
+
+    if config.acceleration_weight:
+        accel_raw = zscore_acceleration(composite_scores,
+                                        config.acceleration_window)
+        blended = blended + config.acceleration_weight * normalize(accel_raw)
+
+    if config.best_rank_weight:
+        # Best (lowest) rank in the trailing window, negated so higher is
+        # better and the weight has the same sign convention as the others.
+        ranks = composite_scores.rank(axis=1, ascending=False, method="min")
+        best = ranks.rolling(config.best_rank_window, min_periods=1).min()
+        blended = blended + config.best_rank_weight * normalize(-best)
+
+    return blended
 
 
 def zscore_acceleration(composite_scores: pd.DataFrame,
