@@ -135,6 +135,20 @@ def load_data(symbols: List[str],
         spy = as_series(spy_raw, "SPY")
         vix = as_series(vix_raw, "VIX")
 
+        # --- drop phantom rows ---
+        # yfinance emits a placeholder row for a session it has no bars for yet
+        # (typically today, before the close). Every ticker is NaN on that row,
+        # which is harmless for ranking but poisons anything using
+        # `dropna(axis=1, how='any')` — one phantom row drops the entire
+        # universe.
+        phantom = close.isna().all(axis=1)
+        if phantom.any():
+            if verbose:
+                dates = ", ".join(f"{d:%Y-%m-%d}" for d in close.index[phantom][:3])
+                print(f"Dropping {phantom.sum()} empty session row(s): {dates}")
+            close = close.loc[~phantom]
+            open_ = open_.reindex(close.index)
+
         # --- clean: drop tickers with less than ~a year of data in total ---
         one_year_ago = close.index[-1] - pd.DateOffset(months=12)
         recent_rows = close.loc[one_year_ago:].shape[0]

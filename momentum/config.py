@@ -172,6 +172,102 @@ class ExecutionConfig:
 # --------------------------------------------------------------------------
 
 @dataclass
+class CorrelationConfig:
+    """
+    Correlation-aware selection and universe screening.
+
+    Two separate jobs, deliberately not conflated:
+
+    1. SELECTION FILTER (medium-term window).  Stops two highly correlated names
+       taking two of only four slots.  Applied greedily down the ranked list: the
+       top-ranked candidate is always taken, then each next candidate is accepted
+       only if it is not too correlated with what has already been accepted.
+       Ranking stays the primary mechanism — this only ever says "not this one,
+       take the next best", never "hold cash instead".
+
+    2. UNIVERSE SCREEN (long-term window).  A quarterly diagnostic listing
+       redundant pairs, so the screener can swap one out for something that adds
+       an independent bet.  Advisory only; changes nothing at runtime.
+
+    method — how the cap is set
+        'absolute'  reject above `max_correlation`.  Simple and interpretable,
+                    but behaves badly across regimes: in calm markets it never
+                    binds, and in a selloff, when everything converges toward
+                    0.9, it can reject every available candidate.
+        'relative'  reject above the `max_percentile` quantile of TODAY's
+                    pairwise correlation distribution.  Self-scaling: it always
+                    excludes the most-redundant tail of what is currently on
+                    offer, whatever the absolute level.  Consistent with ranking
+                    against the universe rather than against a fixed bar.
+
+    on_infeasible — when fewer than top_n candidates clear the cap
+        'relax'      fill remaining slots with the best rejected candidates, in
+                     rank order.  Never ends up under-invested.  Default.
+        'hold_fewer' hold a smaller, genuinely diversified book, equal-weighted
+                     across fewer names.  Concentrates position size instead of
+                     sector exposure — a real trade-off, not a free lunch.
+
+    A caution worth keeping in view: diversification lowers portfolio variance,
+    but the constraint forces you down the ranking into lower-scoring names, and
+    that costs expected return.  Whether the trade nets out is empirical.  Run
+    `scripts/run_experiments.py correlation` rather than assuming it helps.
+    """
+    enabled: bool = True
+
+    # --- when the filter is live ---
+    apply_above_vix: Optional[float] = 25.0
+    #   Correlation only costs you when correlation is what hurts.  In a calm
+    #   tape, three correlated winners are concentration you are being paid for,
+    #   and forcing a swap down the ranking just gives up return for a risk that
+    #   is not currently priced.  In stress, the same three names become one
+    #   position that gaps together.
+    #
+    #   So the filter is gated on absolute VIX rather than run continuously.
+    #   None = always apply.
+    #
+    #   Measured (2026-07-25 sweep, 2012-2026, relative p85):
+    #       gate      CAGR     Sharpe   MaxDD     Calmar
+    #       none    19.85%      0.91   -20.55%     0.97
+    #       25.0    19.83%      0.91   -19.23%     1.03   <- default
+    #       20.0    19.52%      0.89   -20.18%     0.97
+    #       15.0    18.32%      0.83   -25.08%     0.73
+    #       always  16.96%      0.75   -26.31%     0.64
+    #
+    #   Filtering continuously costs 2.9pp of CAGR AND worsens drawdown: you give
+    #   up your best-ranked names to insure against a risk that is not priced in
+    #   a calm tape.  The crossover sits between 15 and 20.
+    #
+    #   Caveat on the default: VIX >= 25 is only 13% of days historically and 5%
+    #   of the last three years, so the 1.3pp drawdown gain rests on a thin slice
+    #   of history.  Read it as approximately-free rather than proven.
+    #
+    #   Absolute level, not a z-score, for the same reason Track A is moving off
+    #   z-scores: a sustained moderate VIX becomes its own baseline and stops
+    #   registering as elevated exactly when it matters.
+
+    # --- selection filter ---
+    window: int = 50                 # trading days for the medium-term estimate
+    method: str = "relative"         # 'absolute' | 'relative'
+    max_correlation: float = 0.75    # used when method='absolute'
+    max_percentile: float = 0.85     # used when method='relative'
+    on_infeasible: str = "relax"     # 'relax' | 'hold_fewer'
+    min_positions: int = 2           # floor when on_infeasible='hold_fewer'
+    apply_to_defensive: bool = False # defensive sleeve is chosen for low
+                                     # correlation already; filtering it just
+                                     # blocks the crisis fill
+
+    # --- universe screen ---
+    long_term_window: int = 200
+    redundant_threshold: float = 0.70
+    #   Calibrated to this universe rather than to a textbook number.  The
+    #   quarterly screen already diversifies below the sector level, and it
+    #   shows: over 1,326 pairs the max is 0.79, only 2 clear 0.70, and none
+    #   reach 0.80.  A 0.80 threshold would flag nothing and give false comfort.
+    #   Treat this screen as drift monitoring between screens, not as a source
+    #   of corrections.
+
+
+@dataclass
 class VixRegimeConfig:
     """
     LEGACY binary/ternary VIX regime based on a rolling z-score.
@@ -219,6 +315,7 @@ class ModelConfig:
     velocity: Optional[VelocityConfig] = field(default_factory=VelocityConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     vix: Optional[VixRegimeConfig] = None
+    correlation: Optional[CorrelationConfig] = field(default_factory=CorrelationConfig)
     graduated_vix: Optional[Any] = None   # GraduatedVixConfig, set in Phase 2
     top_n: int = 4
     hold_days: int = 14
@@ -244,6 +341,7 @@ class ModelConfig:
             "velocity": convert(self.velocity),
             "execution": convert(self.execution),
             "vix": convert(self.vix),
+            "correlation": convert(self.correlation),
             "graduated_vix": convert(self.graduated_vix),
         }
 

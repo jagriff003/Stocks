@@ -107,8 +107,11 @@ def portfolio_concentration(holdings: List[str],
     """
     Sector breakdown of a portfolio.
 
-    With only four equal-weighted slots, two names from one sector is half the
-    book in one bet.  Ranking alone will never surface that.
+    Read this alongside `portfolio_correlation`, never on its own.  Sector
+    labels are a poor proxy for shared risk in both directions: V and STT are
+    both "Financials" yet correlate at 0.02, while IAU and NEM sit in different
+    sectors and correlate at 0.79.  A sector-only concentration warning will
+    reliably flag the wrong things.
     """
     rows = [{"Symbol": s, "Sector": sectors.get(s, "Unknown")} for s in holdings]
     frame = pd.DataFrame(rows)
@@ -119,6 +122,28 @@ def portfolio_concentration(holdings: List[str],
               .rename("Positions").reset_index())
     counts["Weight"] = counts["Positions"] / len(holdings)
     return counts.sort_values("Weight", ascending=False)
+
+
+def portfolio_correlation(holdings: List[str], close: pd.DataFrame,
+                          window: int = 50) -> pd.DataFrame:
+    """
+    Pairwise correlation within the current book.
+
+    This is the honest concentration measure: what actually moves together, not
+    what shares a label.
+    """
+    held = [s for s in holdings if s in close.columns]
+    if len(held) < 2:
+        return pd.DataFrame(columns=["Symbol A", "Symbol B", "Correlation"])
+
+    returns = close[held].pct_change().dropna(axis=0, how="all").iloc[-window:]
+    corr = returns.corr().rename_axis(index="Symbol A", columns="Symbol B")
+
+    mask = np.triu(np.ones(corr.shape, dtype=bool), k=1)
+    pairs = (corr.where(mask).stack(future_stack=True)
+                 .rename("Correlation").reset_index()
+                 .dropna(subset=["Correlation"]))
+    return pairs.sort_values("Correlation", ascending=False).reset_index(drop=True)
 
 
 def format_report_frame(frame: pd.DataFrame,

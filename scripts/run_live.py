@@ -30,7 +30,8 @@ from momentum.config import (ExecutionConfig, ModelConfig, ScoringConfig,
 from momentum.data import export_price_data, load_data
 from momentum.experiments import legacy_config, production_config
 from momentum.reports import (correlation_matrices, individual_stock_performance,
-                              portfolio_concentration, summarize_correlations)
+                              portfolio_concentration, portfolio_correlation,
+                              summarize_correlations)
 from momentum.strategy import compute_scores, run_strategy
 from momentum.universe import (current_symbols, sector_map,
                                snapshot_current_universe)
@@ -127,12 +128,28 @@ def main() -> int:
         for i, (stock, score) in enumerate(latest["Scores"].items(), 1):
             print(f"  {i}. {stock:<6} score {score:>7.3f}")
 
+        # Correlation first — it is the measure that reflects shared risk.
+        # Sector labels are a poor proxy in both directions and are reported
+        # only as context.
+        pairs = portfolio_correlation(latest["Selected_Stocks"], prices.close,
+                                      window=50)
+        if not pairs.empty:
+            worst = pairs.iloc[0]
+            print(f"\n  Book correlation (50d): max pair "
+                  f"{worst['Symbol A']}/{worst['Symbol B']} "
+                  f"{worst['Correlation']:.2f}, mean "
+                  f"{pairs['Correlation'].mean():.2f}")
+            if worst["Correlation"] >= 0.70:
+                print(f"    ^ {worst['Symbol A']} and {worst['Symbol B']} are "
+                      f"effectively one position.")
+
         conc = portfolio_concentration(latest["Selected_Stocks"], sector_map())
         if not conc.empty and (conc["Positions"] > 1).any():
-            print("\n  Sector concentration:")
-            for _, row in conc.iterrows():
-                flag = "  <-- concentrated" if row["Weight"] >= 0.5 else ""
-                print(f"    {row['Sector']:<26} {row['Weight']:>6.0%}{flag}")
+            top = conc.iloc[0]
+            print(f"  Sector: {top['Weight']:.0%} {top['Sector']}"
+                  + (" (label only — see correlation above)"
+                     if not pairs.empty and pairs["Correlation"].max() < 0.5
+                     else ""))
 
     # --- exports ---
     print("\n=== EXPORTING RESULTS ===")

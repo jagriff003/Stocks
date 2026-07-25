@@ -1,6 +1,19 @@
 {
   "_label": "live",
   "_snapshot_date": "2026-07-25",
+  "correlation": {
+    "apply_above_vix": 25.0,
+    "apply_to_defensive": false,
+    "enabled": true,
+    "long_term_window": 200,
+    "max_correlation": 0.75,
+    "max_percentile": 0.85,
+    "method": "relative",
+    "min_positions": 2,
+    "on_infeasible": "relax",
+    "redundant_threshold": 0.7,
+    "window": 50
+  },
   "execution": {
     "execute_at": "next_open",
     "risk_free_rate": 0.045,

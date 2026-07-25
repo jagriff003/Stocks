@@ -15,12 +15,14 @@ machinery, so their results stay comparable to each other and to the baseline.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
-from .config import ExecutionConfig, VelocityConfig, VixRegimeConfig
+from .config import (CorrelationConfig, ExecutionConfig, VelocityConfig,
+                     VixRegimeConfig)
+from .correlation import RollingCorrelation, select_diversified
 from .metrics import (calculate_performance_metrics, calculate_turnover_metrics)
 from .regime import CRISIS, ELEVATED, NORMAL, calculate_vix_regime
 
@@ -55,6 +57,8 @@ def build_target_portfolios(composite_scores: pd.DataFrame,
                             vix_config: Optional[VixRegimeConfig] = None,
                             base_composite_scores: Optional[pd.DataFrame] = None,
                             velocity_config: Optional[VelocityConfig] = None,
+                            correlation_config: Optional[CorrelationConfig] = None,
+                            close: Optional[pd.DataFrame] = None,
                             verbose: bool = False):
     """
     Decide what the model wants to hold on each date.
@@ -65,6 +69,12 @@ def build_target_portfolios(composite_scores: pd.DataFrame,
     defaulting to cash on an arbitrary threshold.  Going defensive is the
     regime overlay's job, not the ranker's.
 
+    When `correlation_config.enabled`, selection walks down the ranking taking
+    the best candidate that is not already duplicated by something held.  The
+    top-ranked name is always taken; the filter only ever redirects later picks
+    to the next best alternative.  `close` is required in that case, to estimate
+    trailing correlations.
+
     Rebalances every `hold_days` *calendar* days (so ~10 trading days for the
     14-day setting), which is the pre-existing convention.
 
@@ -74,6 +84,20 @@ def build_target_portfolios(composite_scores: pd.DataFrame,
     rebalance_history : list of dicts, one per rebalance
     """
     dates = composite_scores.index[min_data_days:]
+
+    rolling_corr = None
+    vix_levels = None
+    if correlation_config is not None and correlation_config.enabled:
+        if close is None:
+            raise ValueError("correlation filtering requires `close` prices")
+        rolling_corr = RollingCorrelation(close, correlation_config.window)
+        if correlation_config.apply_above_vix is not None:
+            if vix_data is None:
+                raise ValueError(
+                    "correlation_config.apply_above_vix requires vix_data; "
+                    "set it to None to filter in all regimes"
+                )
+            vix_levels = pd.Series(vix_data).reindex(composite_scores.index).ffill()
 
     vix_regime = None
     if vix_data is not None and vix_config is not None:
@@ -123,27 +147,59 @@ def build_target_portfolios(composite_scores: pd.DataFrame,
 
                 ranked = valid_scores[valid_stocks].sort_values(ascending=False)
 
+                # Correlation risk is regime-conditional: in a calm tape,
+                # correlated winners are concentration you are being paid for.
+                # Below the gate, rank alone decides.
+                corr_live = rolling_corr is not None
+                if corr_live and correlation_config.apply_above_vix is not None:
+                    level = vix_levels.get(date) if vix_levels is not None else None
+                    corr_live = (level is not None and pd.notna(level)
+                                 and level >= correlation_config.apply_above_vix)
+
+                corr = rolling_corr.at(date) if corr_live else None
+                exempt = (vix_config.defensive_symbols
+                          if (vix_config is not None
+                              and correlation_config is not None
+                              and not correlation_config.apply_to_defensive)
+                          else ())
+
+                def pick(n: int) -> Tuple[List[str], Optional[object]]:
+                    """Top `n` by rank, correlation-filtered when the gate is open."""
+                    if not corr_live or n <= 0:
+                        return ranked.head(n).index.tolist(), None
+                    trace = select_diversified(ranked, corr, correlation_config,
+                                               n, exempt=exempt)
+                    return trace.selected, trace
+
+                trace = None
                 if regime == CRISIS and vix_config is not None:
                     available = [s for s in vix_config.crisis_symbols
                                  if s in price_columns]
-                    new_portfolio = available or ranked.head(top_n).index.tolist()
+                    new_portfolio = available or pick(top_n)[0]
 
                 elif regime == ELEVATED and vix_config is not None:
                     n_momentum = min(vix_config.elevated_top_n, len(valid_stocks))
-                    momentum_picks = ranked.head(n_momentum).index.tolist()
+                    momentum_picks, trace = pick(n_momentum)
                     fill = [s for s in vix_config.defensive_symbols
                             if s in price_columns and s not in momentum_picks]
                     new_portfolio = momentum_picks + fill[:max(0, top_n - n_momentum)]
 
                 else:
-                    new_portfolio = ranked.head(top_n).index.tolist()
+                    new_portfolio, trace = pick(top_n)
 
-                rebalance_history.append({
+                record = {
                     "Date": date,
                     "Selected_Stocks": new_portfolio,
                     "Scores": valid_scores.reindex(new_portfolio).to_dict(),
                     "Regime": regime,
-                })
+                }
+                if trace is not None:
+                    record["Corr_Threshold"] = trace.threshold
+                    record["Corr_Rejected"] = [
+                        f"{sym}~{peer}:{rho:.2f}" for sym, peer, rho in trace.rejected
+                    ]
+                    record["Corr_Relaxed"] = trace.relaxed
+                rebalance_history.append(record)
 
                 current_portfolio = new_portfolio
                 last_rebalance_date = date

@@ -147,6 +147,87 @@ def suite_robustness():
     return experiments
 
 
+def suite_correlation():
+    """
+    Does correlation-aware selection pay, and when?
+
+    The ranker scores each stock alone, so nothing stops two of four slots going
+    to the same bet in different tickers.  This tests folding the correlation
+    matrices — currently exported and read by eye — into selection.
+
+    The central question is not "is diversification good" but WHEN it is worth
+    paying for.  Forcing a swap down the ranking costs expected return every
+    time it fires; correlation only costs you when correlated names gap
+    together, which is a stress phenomenon.  In a calm tape, three correlated
+    winners are concentration you are being paid for.
+
+    So the sweep varies the VIX gate (never / 25 / 20 / 15 / always) as the
+    primary axis, and threshold style as the secondary one:
+
+      absolute  a fixed cap.  Simple, but never binds in calm markets and can
+                reject everything in a selloff, when pairwise correlations all
+                converge toward 0.9.
+      relative  a percentile of TODAY's correlation distribution.  Always
+                excludes the most-redundant tail of what is on offer, whatever
+                the absolute level.
+    """
+    base = production_config()
+    exps = [variant(base, "no_corr_filter", "baseline: rank only",
+                    correlation__enabled=False)]
+
+    for gate in (25.0, 20.0, 15.0, None):
+        label = "always" if gate is None else f"vix{gate:g}"
+        exps.append(
+            variant(base, f"rel85_{label}",
+                    f"relative p85, gated above VIX {gate or 0:g}",
+                    correlation__enabled=True,
+                    correlation__method="relative",
+                    correlation__max_percentile=0.85,
+                    correlation__apply_above_vix=gate)
+        )
+
+    # Threshold style and strictness, at the gate that the axis above favours.
+    for pct in (0.70, 0.95):
+        exps.append(
+            variant(base, f"rel{int(pct * 100)}_vix20", "",
+                    correlation__enabled=True,
+                    correlation__method="relative",
+                    correlation__max_percentile=pct,
+                    correlation__apply_above_vix=20.0)
+        )
+
+    for cap in (0.70, 0.85):
+        exps.append(
+            variant(base, f"abs{int(cap * 100)}_vix20", "",
+                    correlation__enabled=True,
+                    correlation__method="absolute",
+                    correlation__max_correlation=cap,
+                    correlation__apply_above_vix=20.0)
+        )
+
+    # Correlation window: how much history the estimate uses.
+    for window in (20, 200):
+        exps.append(
+            variant(base, f"rel85_vix20_w{window}", f"{window}d correlation window",
+                    correlation__enabled=True,
+                    correlation__method="relative",
+                    correlation__max_percentile=0.85,
+                    correlation__window=window,
+                    correlation__apply_above_vix=20.0)
+        )
+
+    # Hold fewer, better-diversified positions rather than backfilling.
+    exps.append(
+        variant(base, "rel85_vix20_holdfewer", "concentrate size, not exposure",
+                correlation__enabled=True,
+                correlation__method="relative",
+                correlation__max_percentile=0.85,
+                correlation__apply_above_vix=20.0,
+                correlation__on_infeasible="hold_fewer")
+    )
+    return exps
+
+
 def suite_vix():
     """Legacy VIX regime thresholds. Superseded by the Track A ladder."""
     base = production_config()
@@ -196,6 +277,8 @@ SUITES = {
                   "legacy_scale_L70V30"),
     "robustness": (suite_robustness, "rsi_ma_velocity_robustness.csv",
                    "level_only"),
+    "correlation": (suite_correlation, "rsi_ma_correlation_filter_comparison.csv",
+                    "no_corr_filter"),
     "vix":       (suite_vix,       "rsi_ma_vix_regime_comparison.csv",
                   "no_vix_filter"),
     "zscore":    (suite_zscore,    "rsi_ma_zscore_comparison.csv",
