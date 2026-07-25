@@ -497,6 +497,127 @@ def suite_overnight():
     return exps
 
 
+def suite_exits():
+    """
+    Track B — per-stock rank exits, decoupled from the buy clock.
+
+    The frequency evidence replicates: 75% of holdings drop out of the top 4
+    before their hold ends, median day 4, only 17.8% recover.
+
+    The return evidence does not support the stated premise. From the moment an
+    exit would trigger, positions go on to earn +0.39% on average (median
+    +0.00%, 44% negative) over the following ~7 days. Rank is RELATIVE — a stock
+    slides from 4th to 6th because others rose, not because it fell — so rank
+    decay carries little directional information about the holding.
+
+    That leaves one live question, which this suite answers: an exit does not
+    have to avoid a loss to be worth it, it only has to redeploy into something
+    better. The replacement must beat +0.39% over ~7 days by more than the ~15
+    bps round trip.
+
+    Axes:
+      exit_rank    how far a holding must fall (5 = twitchy, 8 = only on
+                   genuine collapse)
+      consecutive  confirmation days, the anti-flapping guard
+      replacement  immediate / defensive / defer — Track A's overnight-premium
+                   result predicts the non-invested variants lose badly, and
+                   they are included to confirm that rather than assume it
+      budget       cap on exits per month, since turnover is the binding cost
+    """
+    base = production_config()
+    exps = [variant(base, "no_rank_exit", "baseline: 14-day clock only",
+                    exits__enabled=False)]
+
+    for rank in (5, 6, 8):
+        for consecutive in (1, 2, 3):
+            exps.append(
+                variant(base, f"exit_r{rank}_d{consecutive}", "",
+                        exits__enabled=True,
+                        exits__exit_rank_threshold=rank,
+                        exits__consecutive_days=consecutive,
+                        exits__replacement="immediate")
+            )
+
+    for mode in ("defensive", "defer"):
+        exps.append(
+            variant(base, f"exit_r6_d2_{mode}", f"replacement={mode}",
+                    exits__enabled=True, exits__exit_rank_threshold=6,
+                    exits__consecutive_days=2, exits__replacement=mode)
+        )
+
+    for budget in (1, 2):
+        exps.append(
+            variant(base, f"exit_r6_d2_max{budget}pm", f"max {budget} exits/month",
+                    exits__enabled=True, exits__exit_rank_threshold=6,
+                    exits__consecutive_days=2, exits__replacement="immediate",
+                    exits__max_exits_per_month=budget)
+        )
+
+    # Minimum hold, guarding against same-week round trips.
+    exps.append(
+        variant(base, "exit_r6_d2_minhold7", "min 7 days before exit eligible",
+                exits__enabled=True, exits__exit_rank_threshold=6,
+                exits__consecutive_days=2, exits__replacement="immediate",
+                exits__min_hold_days=7)
+    )
+    return exps
+
+
+def suite_swaps():
+    """
+    Track B, second pass — "sell when there's a better buy available".
+
+    The rank-trigger version was rejected: every variant lost, monotonically
+    with turnover, because rank is relative and a holding sliding from 4th to
+    6th carries no information about its own prospects (measured forward return
+    after trigger: +0.39% mean, +0.00% median).
+
+    This tests the opportunity-triggered version instead. A swap fires only when
+    the best available candidate beats the weakest holding by more than
+    `min_score_gap` composite z-units — the transaction-cost hurdle expressed in
+    signal terms.
+
+    The live risk is timing, not logic: if the gap only opens after the
+    challenger has already run, the rule buys the top. The model is documented
+    to be late to its own winners (60% of new entrants had already spent 10+ of
+    the prior 40 sessions in the top 8). `scripts/analyze_swap_quality.py`
+    measures challenger-vs-incumbent forward returns to settle that directly,
+    rather than inferring it from the CAGR column.
+
+    A gap of 0.0 is included as the degenerate control: swap whenever ANY
+    candidate outranks a holding. That is continuous rebalancing, and it should
+    be terrible — if it is not, something is wrong with the cost model.
+    """
+    base = production_config()
+    exps = [variant(base, "no_swap", "baseline: 14-day clock only",
+                    exits__enabled=False)]
+
+    for gap in (0.0, 0.25, 0.5, 0.75, 1.0, 1.5):
+        exps.append(
+            variant(base, f"swap_gap{gap:g}", f"challenger must beat by {gap:g}z",
+                    exits__enabled=True, exits__mode="score_gap",
+                    exits__min_score_gap=gap, exits__consecutive_days=2)
+        )
+
+    # Confirmation days at the gap most likely to be viable.
+    for days in (1, 3, 5):
+        exps.append(
+            variant(base, f"swap_gap1.0_d{days}", f"{days}d confirmation",
+                    exits__enabled=True, exits__mode="score_gap",
+                    exits__min_score_gap=1.0, exits__consecutive_days=days)
+        )
+
+    # Turnover budget, the binding constraint on everything in this family.
+    for budget in (1, 2):
+        exps.append(
+            variant(base, f"swap_gap1.0_max{budget}pm", f"max {budget}/month",
+                    exits__enabled=True, exits__mode="score_gap",
+                    exits__min_score_gap=1.0, exits__consecutive_days=2,
+                    exits__max_exits_per_month=budget)
+        )
+    return exps
+
+
 def suite_vix():
     """Legacy VIX regime thresholds. Superseded by the Track A ladder."""
     base = production_config()
@@ -552,6 +673,8 @@ SUITES = {
     "ladder2":   (suite_ladder_extreme, "rsi_ma_ladder_extreme.csv", "legacy_zscore_vix"),
     "zladder":   (suite_ladder_zscore, "rsi_ma_ladder_zscore.csv", "legacy_zscore_vix"),
     "overnight": (suite_overnight, "rsi_ma_overnight_gap.csv", "rebalance_gated_NO"),
+    "exits":     (suite_exits, "rsi_ma_exit_comparison.csv", "no_rank_exit"),
+    "swaps":     (suite_swaps, "rsi_ma_swap_comparison.csv", "no_swap"),
     "vix":       (suite_vix,       "rsi_ma_vix_regime_comparison.csv",
                   "no_vix_filter"),
     "zscore":    (suite_zscore,    "rsi_ma_zscore_comparison.csv",

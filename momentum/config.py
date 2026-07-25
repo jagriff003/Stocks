@@ -305,6 +305,107 @@ class GraduatedVixConfig:
 
 
 @dataclass
+class ExitConfig:
+    """
+    Track B — per-stock rank exits, decoupled from the buy clock.
+
+    Buy and sell currently run on the same 14-day timer for no reason other
+    than that they always have.  The evidence for splitting them:
+
+      - 68% of holdings drop out of the top 4 before their hold ends, at a
+        median of day 3 out of ~10 trading days.
+      - That leaves ~6.5 trading days per instance holding a stock the model no
+        longer ranks.
+      - Only 17% recover their rank, so this is persistent decay rather than
+        boundary noise.
+
+    This is NOT the same question Track A answered.  Track A tested a
+    portfolio-wide risk dial and found that de-risking forfeits the overnight
+    premium — 63% of the return stream for 36% of the variance.  A rank exit
+    does not de-risk: it rotates from a decayed name into a better-ranked one,
+    staying fully invested.  The overnight-premium result therefore argues for
+    `replacement='immediate'` and against the defensive variants, but says
+    nothing about whether the exit itself is right.
+
+    exit_rank_threshold
+        Rank a holding must fall TO before it is a candidate for exit.  Setting
+        this above top_n creates the buffer: with top_n=4 and a threshold of 6,
+        a stock sitting at rank 5 is left alone.  Rank 5 today is often rank 4
+        tomorrow, and paying 2x slippage to round-trip that is pure loss.
+
+    consecutive_days
+        Days it must stay at or beyond that rank before exiting.  The second
+        half of the anti-flapping guard.
+
+    replacement — what fills the vacated slot
+        'immediate'  best-ranked stock not already held.  Stays fully invested.
+        'defensive'  a defensive symbol.  Expected to underperform on the
+                     overnight-premium result; included to confirm that.
+        'defer'      hold fewer positions until the next scheduled rebalance.
+                     Equal-weights across a smaller book, so it concentrates
+                     rather than de-risks.
+
+    max_exits_per_month
+        Turnover budget.  0 = unlimited.  The strategy already runs ~130 trade
+        legs and 16.9x portfolio turnover a year, where 7.5 bps one-way costs
+        2.9pp of CAGR.  Any exit rule must clear roughly 0.17pp of CAGR per
+        extra 1x of annual turnover just to break even.
+    """
+    enabled: bool = False
+
+    mode: str = "rank"                 # 'rank' | 'score_gap'
+    #   'rank'      exit when the HOLDING decays past a rank threshold. Tests
+    #               the premise "sells too late". REJECTED on evidence — every
+    #               variant lost, monotonically with turnover, from -1.2pp
+    #               (budgeted) to -10.5pp (twitchy). Rank is relative, so a
+    #               holding falling from 4th to 6th usually means others rose,
+    #               not that it fell: measured return after trigger is +0.39%
+    #               mean, +0.00% median.
+    #
+    #   'score_gap' exit when a BETTER BUY exists — trigger on the opportunity
+    #               rather than the decay. Swap only when the best available
+    #               candidate beats the worst holding by more than
+    #               `min_score_gap`. This is the economically coherent version:
+    #               it compares the size of the opportunity against the cost of
+    #               taking it, instead of selling on a relative-rank move that
+    #               carries no directional information.
+    #
+    #               Worth ~8pp of CAGR over the rank trigger, and the best
+    #               setting (gap 1.0z, max 2/month) is break-even against not
+    #               trading at all: 19.92% vs 19.84%, Sharpe 0.92 vs 0.91.
+    #               Performance rises monotonically as the gap widens — the
+    #               better the rule, the less it trades — which is the signature
+    #               of no edge rather than a tuning opportunity.
+    #
+    #               Measured directly (analyze_swap_quality.py, 216 swaps):
+    #                   horizon   incoming  outgoing    edge   win rate  t
+    #                       5d      0.46%     0.63%   -0.17%     45.6%  -0.43
+    #                      10d      0.74%     0.70%   +0.04%     40.6%   0.08
+    #                      21d      1.65%     1.34%   +0.31%     52.8%   0.36
+    #
+    #               The challenger is statistically indistinguishable from the
+    #               name it displaces. The signal arrives too late to carry
+    #               information, so the swap pays ~15 bps to exchange a position
+    #               for an equivalent one. Left disabled.
+
+    min_score_gap: float = 0.5
+    #   Composite z-score units the challenger must beat the incumbent by,
+    #   used when mode='score_gap'. This is the transaction-cost hurdle
+    #   expressed in signal terms: a round trip costs ~15 bps, so a gap too
+    #   small to be worth 15 bps should not trigger a trade. Set it too low and
+    #   you churn on noise; too high and it never fires.
+
+    exit_rank_threshold: int = 6
+    consecutive_days: int = 2
+    replacement: str = "immediate"     # 'immediate' | 'defensive' | 'defer'
+    max_exits_per_month: int = 0       # 0 = unlimited
+
+    min_hold_days: int = 0
+    #   Optional floor on how soon after entry a position can be exited.  Guards
+    #   against buying and selling a name within days on a marginal rank wobble.
+
+
+@dataclass
 class CorrelationConfig:
     """
     Correlation-aware selection and universe screening.
@@ -449,6 +550,7 @@ class ModelConfig:
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     vix: Optional[VixRegimeConfig] = None
     correlation: Optional[CorrelationConfig] = field(default_factory=CorrelationConfig)
+    exits: Optional[ExitConfig] = field(default_factory=ExitConfig)
     graduated_vix: Optional[GraduatedVixConfig] = None
     #   When set, supersedes `vix` entirely — the two regime systems are
     #   alternatives, not layers. Set `vix=None` alongside it to make that
@@ -478,6 +580,7 @@ class ModelConfig:
             "execution": convert(self.execution),
             "vix": convert(self.vix),
             "correlation": convert(self.correlation),
+            "exits": convert(self.exits),
             "graduated_vix": convert(self.graduated_vix),
         }
 

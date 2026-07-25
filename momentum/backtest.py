@@ -20,9 +20,11 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from .config import (CorrelationConfig, ExecutionConfig, GraduatedVixConfig,
-                     VelocityConfig, VixRegimeConfig)
+from .config import (CorrelationConfig, ExecutionConfig, ExitConfig,
+                     GraduatedVixConfig, VelocityConfig, VixRegimeConfig)
 from .correlation import RollingCorrelation, select_diversified
+from .exits import (ExitState, choose_replacements, daily_ranks, evaluate_exits,
+                    evaluate_swaps)
 from .metrics import (calculate_performance_metrics, calculate_turnover_metrics)
 from .regime import (CRISIS, ELEVATED, NORMAL, calculate_vix_regime,
                      graduated_regime)
@@ -60,6 +62,7 @@ def build_target_portfolios(composite_scores: pd.DataFrame,
                             velocity_config: Optional[VelocityConfig] = None,
                             correlation_config: Optional[CorrelationConfig] = None,
                             graduated_config: Optional[GraduatedVixConfig] = None,
+                            exit_config: Optional[ExitConfig] = None,
                             close: Optional[pd.DataFrame] = None,
                             verbose: bool = False):
     """
@@ -119,6 +122,18 @@ def build_target_portfolios(composite_scores: pd.DataFrame,
     # Cumulative count of non-null scores per stock, so the "enough history"
     # filter is a lookup instead of a re-scan of the whole column per rebalance.
     history_counts = composite_scores.notna().cumsum()
+
+    # --- Track B: daily per-stock rank monitoring ---
+    ranks = None
+    exit_state = ExitState()
+    use_exits = exit_config is not None and exit_config.enabled
+    if use_exits:
+        ranks = daily_ranks(
+            composite_scores, history_counts, min_data_days,
+            base_scores=base_composite_scores,
+            min_level=(velocity_config.min_level_threshold
+                       if velocity_config is not None else None),
+        )
 
     targets: Dict[pd.Timestamp, List[str]] = {}
     rebalance_history: List[Dict] = []
@@ -238,6 +253,11 @@ def build_target_portfolios(composite_scores: pd.DataFrame,
                     record["Corr_Relaxed"] = trace.relaxed
                 rebalance_history.append(record)
 
+                if use_exits:
+                    exit_state.forget([s for s in current_portfolio
+                                       if s not in new_portfolio])
+                    exit_state.note_entries(new_portfolio, date)
+
                 current_portfolio = new_portfolio
                 current_ranked = ranked
                 last_rebalance_date = date
@@ -274,6 +294,73 @@ def build_target_portfolios(composite_scores: pd.DataFrame,
                               f"{slots}/{top_n} momentum — "
                               f"{', '.join(new_portfolio)}")
                 last_slots = slots
+
+        # --- Track B: per-stock rank exits, off the buy clock ---
+        #
+        # 68% of holdings drop out of the top 4 before their hold ends, at a
+        # median of day 3 of ~10, and only 17% recover. This exits on the
+        # position's own decay rather than waiting for the shared timer.
+        #
+        # Note this does NOT reduce market exposure — it rotates into a
+        # better-ranked name. Track A showed that de-risking forfeits the
+        # overnight premium, which is why 'immediate' is the default
+        # replacement and the defensive variant is expected to lose.
+        if use_exits and current_portfolio and not due:
+            defensive = (graduated_config.defensive_symbols if graduated_config
+                         else (vix_config.defensive_symbols if vix_config else []))
+            candidates = (composite_scores.loc[date]
+                          .where(history_counts.loc[date] >= min_data_days)
+                          .dropna()
+                          .sort_values(ascending=False))
+
+            leaving: List[str] = []
+            replacements: List[str] = []
+            trigger = None
+
+            if exit_config.mode == "score_gap":
+                # Trigger on the opportunity, not the decay: swap only when a
+                # challenger beats the incumbent by more than the cost hurdle.
+                swaps = evaluate_swaps(current_portfolio, candidates, date,
+                                       exit_config, exit_state,
+                                       protected=defensive,
+                                       available=price_columns)
+                if swaps:
+                    leaving = [out for out, _ in swaps]
+                    replacements = [inc for _, inc in swaps]
+                    trigger = "score_swap"
+            else:
+                leaving = evaluate_exits(current_portfolio, ranks.loc[date], date,
+                                         exit_config, exit_state,
+                                         protected=defensive)
+                if leaving:
+                    replacements = choose_replacements(
+                        len(leaving), candidates,
+                        exclude=set(current_portfolio),
+                        config=exit_config, defensive=defensive,
+                        available=price_columns,
+                    )
+                    trigger = "rank_exit"
+
+            if leaving:
+                keep = [s for s in current_portfolio if s not in leaving]
+                new_portfolio = keep + replacements
+                if new_portfolio != current_portfolio:
+                    rebalance_history.append({
+                        "Date": date,
+                        "Selected_Stocks": new_portfolio,
+                        "Scores": candidates.reindex(new_portfolio).to_dict(),
+                        "Regime": trigger,
+                        "Trigger": trigger,
+                        "Exited": leaving,
+                        "Added": replacements,
+                    })
+                    exit_state.forget(leaving)
+                    exit_state.note_entries(replacements, date)
+                    current_portfolio = new_portfolio
+
+                    if verbose:
+                        print(f"{trigger} {date:%Y-%m-%d}: out {', '.join(leaving)}"
+                              f" -> in {', '.join(replacements) or '(none)'}")
 
         targets[date] = list(current_portfolio)
 
