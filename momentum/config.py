@@ -643,6 +643,27 @@ class ModelConfig:
     top_n: int = 4
     hold_days: int = 14
     min_data_days: int = 200
+
+    # --- rank offset ---
+    #
+    # How far down the ranking selection starts.  0 holds ranks 1-4, 1 holds
+    # 2-5, 2 holds 3-6.  The premise being tested is that the top-ranked name
+    # has already made its move and the names just behind it have further to
+    # run.  Note what the offset does NOT do: it does not widen the book, and
+    # it does not skip a name for being expensive or extended — it skips it for
+    # being *ranked first*, which is a claim about the score's behaviour at its
+    # own top end, not about the stock.
+    #
+    # The clamp in `_apply_rank_offset` keeps the book at `top_n` names even
+    # when the offset would run past the end of the eligible list.
+    rank_offset: int = 0
+
+    # 'all'     the offset applies in every regime, including the reduced
+    #           momentum slice of an elevated/crisis book.
+    # 'normal'  the offset stands down whenever the regime overlay has already
+    #           cut exposure, so a defensive book still takes the true leaders.
+    rank_offset_scope: str = "all"
+
     notes: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
@@ -659,6 +680,8 @@ class ModelConfig:
             "top_n": self.top_n,
             "hold_days": self.hold_days,
             "min_data_days": self.min_data_days,
+            "rank_offset": self.rank_offset,
+            "rank_offset_scope": self.rank_offset_scope,
             "notes": self.notes,
             "scoring": convert(self.scoring),
             "velocity": convert(self.velocity),

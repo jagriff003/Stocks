@@ -13,8 +13,9 @@ variants over the same universe does not.
 ## Bottom line
 
 The three tracks proposed in the design document were all tested and all
-rejected on evidence. The gains that did materialize came from fixing two
-measurement defects and one mis-specified parameter, not from new features.
+rejected on evidence, as was Track D (rank offset), added 2026-09-03. The
+gains that did materialize came from fixing two measurement defects and one
+mis-specified parameter, not from new features.
 
 | Change | Status | CAGR effect |
 |---|---|---|
@@ -25,6 +26,7 @@ measurement defects and one mis-specified parameter, not from new features.
 | Track A — graduated VIX ladder | **rejected** | -2.8 to -9.8pp |
 | Track B — rank exits / score-gap swaps | **rejected** | -1.2 to -10.5pp; best is break-even |
 | Track C — acceleration, earlier entry | **rejected** | -0.8 to -9.3pp |
+| Track D — rank offset (skip top 1-5) | **rejected** | -2.0 to -9.8pp |
 
 Live model: **19.84% CAGR, 0.91 Sharpe, -19.23% max drawdown, Calmar 1.03**,
 net of realistic fills and costs. The honest like-for-like starting point was
@@ -183,6 +185,61 @@ Also settled and needing no build: **inverting the level/velocity weights is
 wrong** (every L30/V70 config underperforms level-only at 35-47 more trades a
 year), and **ranking on pure z-score rate of change** — Track C #2 — scores
 10.1-12.8% across all windows.
+
+---
+
+## Track D — rank offset, "skip the peaked leader" (rejected)
+
+`run_experiments.py offset`, `rsi_ma_rank_offset.csv`
+
+The premise: the top-ranked name has already made its move, so a book of ranks
+2-5 buys names still on the way up rather than the one about to give it back.
+Book size held at `top_n=4` throughout, so nothing here is confounded with a
+position-sizing change.
+
+| Held ranks | CAGR | Sharpe | MaxDD | Calmar | Trd/Yr |
+|---|---|---|---|---|---|
+| **1-4 (production)** | **19.80%** | **0.91** | **-19.23%** | **1.03** | **128.0** |
+| 2-5 | 17.77% | 0.80 | -26.88% | 0.66 | 142.3 |
+| 3-6 | 11.54% | 0.43 | -27.16% | 0.43 | 150.7 |
+| 4-7 | 13.15% | 0.52 | -26.06% | 0.50 | 158.7 |
+| 5-8 | 10.25% | 0.34 | -29.02% | 0.35 | 163.1 |
+| 6-9 | 10.01% | 0.32 | -26.05% | 0.38 | 165.7 |
+
+Baseline wins every headline metric and leads in all three subperiods (14.71% /
+19.68% / 25.25%). Offsets of 2 and above beat the median config in at most one
+segment. The gradient is smooth apart from the 3-6 / 4-7 inversion, which is
+noise in a 52-name universe.
+
+Three specifics worth keeping, because each rules out a different rescue:
+
+- **The offset does not buy risk reduction.** Drawdown gets *worse* by 6.8-9.8pp
+  at every offset. There is no risk-adjusted reading under which skipping the
+  leader pays; it is not a return-for-safety trade.
+- **It costs more to run.** Trades/year rises monotonically, 128 → 166, and
+  annual turnover 1631% → 2110%. Deeper ranks are less persistent, so the
+  skipped book churns harder — the offset pays more slippage for less return.
+- **Offset 1 is the only near-miss, and it is not close enough.** -2.03% CAGR
+  and -7.65pp drawdown. It survives the subperiod screen, which means the top
+  rank's edge is concentrated rather than universal, but it loses on every
+  metric in every segment.
+
+**Scope made no difference.** Standing the offset down under the VIX overlay
+(`rank_offset_scope='normal'`) tracks the all-regimes variant within 0.5pp of
+CAGR at every offset — 17.52% vs 17.77% at offset 1, 11.99% vs 11.54% at
+offset 2. The elevated/crisis books are too small a share of days to matter, so
+the simpler scope (`'all'`) is the one to keep.
+
+**What this measures.** The offset is a claim about the composite's behaviour at
+its own top end — that the score turns anti-predictive in its highest band while
+staying predictive just below. The monotone decay says the opposite: rank 1
+carries the *most* information of any rank, and the score is well-ordered right
+through the top. That is the same conclusion Tracks B and C reached from the
+other direction — the composite's ranking is sound, and what it lacks is
+timeliness, not ordering.
+
+The parameter stays in `ModelConfig` at `rank_offset=0`, which is a no-op, so the
+result is reproducible without re-deriving the machinery.
 
 ---
 

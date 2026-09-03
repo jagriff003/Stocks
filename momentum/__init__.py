@@ -27,7 +27,7 @@ from .config import (
     load_config_snapshot,
 )
 from .data import PriceData, export_price_data, load_data
-from .strategy import compute_scores, run_strategy
+from .strategy import compute_scores, current_selection, run_strategy
 from .universe import current_symbols, defensive_symbols, load_universe
 
 __all__ = [
@@ -43,6 +43,7 @@ __all__ = [
     "export_price_data",
     "run_strategy",
     "compute_scores",
+    "current_selection",
     "current_symbols",
     "defensive_symbols",
     "load_universe",

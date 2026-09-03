@@ -32,7 +32,7 @@ from momentum.experiments import legacy_config, production_config
 from momentum.reports import (correlation_matrices, individual_stock_performance,
                               portfolio_concentration, portfolio_correlation,
                               summarize_correlations)
-from momentum.strategy import compute_scores, run_strategy
+from momentum.strategy import compute_scores, current_selection, run_strategy
 from momentum.universe import (current_symbols, sector_map,
                                snapshot_current_universe)
 
@@ -58,6 +58,131 @@ def build_config(legacy: bool = False) -> ModelConfig:
     )
 
 
+def _print_book(record, prices, indent="    "):
+    """One selected book: names, scores, and the risk context that matters."""
+    symbols = record["Selected_Stocks"]
+    for i, (stock, score) in enumerate(record["Scores"].items(), 1):
+        score_txt = f"{score:>7.3f}" if pd.notna(score) else "      -"
+        print(f"{indent}{i}. {stock:<6} score {score_txt}")
+
+    # Correlation first — it is the measure that reflects shared risk.  Sector
+    # labels are a poor proxy in both directions and are reported only as
+    # context.
+    pairs = portfolio_correlation(symbols, prices.close, window=50)
+    if not pairs.empty:
+        worst = pairs.iloc[0]
+        print(f"{indent}corr (50d): max {worst['Symbol A']}/{worst['Symbol B']} "
+              f"{worst['Correlation']:.2f}, mean {pairs['Correlation'].mean():.2f}")
+        if worst["Correlation"] >= 0.70:
+            print(f"{indent}  ^ {worst['Symbol A']} and {worst['Symbol B']} are "
+                  f"effectively one position.")
+
+    conc = portfolio_concentration(symbols, sector_map())
+    if not conc.empty and (conc["Positions"] > 1).any():
+        top = conc.iloc[0]
+        print(f"{indent}sector: {top['Weight']:.0%} {top['Sector']}"
+              + (" (label only — see corr above)"
+                 if not pairs.empty and pairs["Correlation"].max() < 0.5
+                 else ""))
+
+    if record.get("Corr_Rejected"):
+        print(f"{indent}corr filter redirected: "
+              f"{', '.join(record['Corr_Rejected'])}"
+              + ("  [relaxed]" if record.get("Corr_Relaxed") else ""))
+
+
+def print_rotation_sets(result, prices, config, ranking_scores, base_scores,
+                        as_of=None):
+    """
+    The two sets, at the bottom of the run so no scrolling is needed.
+
+    SET 1 is the aligned rotation: what the `hold_days` clock last selected, and
+    therefore what the book should actually be holding.  SET 2 is a fresh
+    selection on the latest available close, which is what the model would pick
+    if it were rotating today.
+
+    Running off-cycle is exactly when these two diverge, and the divergence is
+    the point of showing both.  It is not a trade list — acting on SET 2 between
+    rotations is a different strategy from the one that was backtested, and the
+    rank-exit and score-swap suites both tested versions of that idea and
+    rejected them.  Read it as information about how stale the aligned book is.
+    """
+    print("\n" + "=" * 78)
+    print("ROTATION SETS")
+    print("=" * 78)
+
+    history = result.rebalance_history or []
+    scheduled = [(i, r) for i, r in enumerate(history)
+                 if r.get("Trigger") == "rebalance"]
+    latest_data = prices.close.index[-1]
+
+    # --- SET 1: the aligned rotation ---
+    if not scheduled:
+        print("\n  [1] ALIGNED ROTATION: none in the sample.")
+    else:
+        aligned_pos, aligned = scheduled[-1]
+        rotated = aligned["Date"]
+        due = rotated + pd.Timedelta(days=config.hold_days)
+        age = (latest_data - rotated).days
+
+        print(f"\n  [1] ALIGNED ROTATION — on the {config.hold_days}-day clock")
+        print(f"      rotated {rotated:%Y-%m-%d} ({age}d ago), "
+              f"regime {str(aligned['Regime']).upper()}")
+        print(f"      next scheduled rotation on or after {due:%Y-%m-%d} "
+              f"({(due - pd.Timestamp(date.today())).days:+d}d from today)")
+        _print_book(aligned, prices, indent="        ")
+
+        # Intra-hold triggers (rank exits, regime shifts) move the book off the
+        # aligned set.  Both are disabled in the production config, so this is a
+        # guard against silently reporting a stale set if one is ever enabled.
+        if history[-1] is not aligned:
+            drifted = history[-1]
+            print(f"      NOTE: {len(history) - aligned_pos - 1} "
+                  f"intra-hold change(s) since; effective book as of "
+                  f"{drifted['Date']:%Y-%m-%d} is "
+                  f"{', '.join(drifted['Selected_Stocks'])}")
+
+    # --- SET 2: fresh selection on the latest close ---
+    fresh = current_selection(prices, config,
+                              ranking_scores=ranking_scores,
+                              base_scores=base_scores,
+                              as_of=as_of)
+    if fresh is None:
+        print("\n  [2] CURRENT SET: universe could not fill the book.")
+        return
+
+    record, ranked = fresh
+    print(f"\n  [2] CURRENT SET — fresh selection as of {record['Date']:%Y-%m-%d} "
+          f"close, regime {str(record['Regime']).upper()}")
+    if record["Date"] != latest_data:
+        print(f"      (latest price date is {latest_data:%Y-%m-%d})")
+    if record["Date"].date() == date.today():
+        # yfinance keeps a partially-formed bar for a session in progress, and
+        # only drops a row that is empty for every ticker. Scoring off an
+        # intraday price is not the same signal the close will produce, so say
+        # so rather than let the set look settled.
+        print("      CAUTION: this is today's bar — if the session is still "
+              "open these are intraday prices.")
+        print("      Use --as-of YYYY-MM-DD to pin it to a completed session.")
+    _print_book(record, prices, indent="        ")
+
+    if config.rank_offset:
+        skipped = [s for s in ranked.index[:config.rank_offset]]
+        print(f"      rank_offset={config.rank_offset} "
+              f"({config.rank_offset_scope}) skipped: {', '.join(skipped)}")
+
+    if scheduled:
+        held = scheduled[-1][1]["Selected_Stocks"]
+        now = record["Selected_Stocks"]
+        out = [s for s in held if s not in now]
+        into = [s for s in now if s not in held]
+        if not out and not into:
+            print("      unchanged from the aligned rotation.")
+        else:
+            print(f"      drift vs aligned: out {', '.join(out) or '(none)'}"
+                  f"  /  in {', '.join(into) or '(none)'}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the live momentum model")
     parser.add_argument("--legacy", action="store_true",
@@ -67,6 +192,9 @@ def main() -> int:
     parser.add_argument("--start", default="2010-01-01")
     parser.add_argument("--no-cache", action="store_true",
                         help="force a fresh download")
+    parser.add_argument("--as-of", default=None,
+                        help="date for the CURRENT SET, e.g. 2026-09-02; "
+                             "defaults to the latest available session")
     args = parser.parse_args()
 
     config = build_config(legacy=args.legacy)
@@ -119,38 +247,6 @@ def main() -> int:
     print(f"  Annual turnover{t['annual_turnover']:>10.1%}")
     print(f"  Slippage paid  {result.total_cost:>10.2%} cumulative")
 
-    # --- current holdings ---
-    if result.rebalance_history:
-        latest = result.rebalance_history[-1]
-        print(f"\n=== CURRENT HOLDINGS "
-              f"(last rebalance {latest['Date']:%Y-%m-%d}, "
-              f"regime {latest['Regime'].upper()}) ===")
-        for i, (stock, score) in enumerate(latest["Scores"].items(), 1):
-            print(f"  {i}. {stock:<6} score {score:>7.3f}")
-
-        # Correlation first — it is the measure that reflects shared risk.
-        # Sector labels are a poor proxy in both directions and are reported
-        # only as context.
-        pairs = portfolio_correlation(latest["Selected_Stocks"], prices.close,
-                                      window=50)
-        if not pairs.empty:
-            worst = pairs.iloc[0]
-            print(f"\n  Book correlation (50d): max pair "
-                  f"{worst['Symbol A']}/{worst['Symbol B']} "
-                  f"{worst['Correlation']:.2f}, mean "
-                  f"{pairs['Correlation'].mean():.2f}")
-            if worst["Correlation"] >= 0.70:
-                print(f"    ^ {worst['Symbol A']} and {worst['Symbol B']} are "
-                      f"effectively one position.")
-
-        conc = portfolio_concentration(latest["Selected_Stocks"], sector_map())
-        if not conc.empty and (conc["Positions"] > 1).any():
-            top = conc.iloc[0]
-            print(f"  Sector: {top['Weight']:.0%} {top['Sector']}"
-                  + (" (label only — see correlation above)"
-                     if not pairs.empty and pairs["Correlation"].max() < 0.5
-                     else ""))
-
     # --- exports ---
     print("\n=== EXPORTING RESULTS ===")
     out = REPO_ROOT
@@ -183,6 +279,10 @@ def main() -> int:
         matrix.to_csv(path)
         print(summarize_correlations(matrix, period))
         print(f"Exported to: {path.name}")
+
+    # --- the two sets, last so they need no scrolling ---
+    print_rotation_sets(result, prices, config, ranking_scores,
+                        base_scores, as_of=args.as_of)
 
     # --- charts ---
     if not args.no_plots:

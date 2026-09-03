@@ -4,6 +4,7 @@ Parameter sweeps.
     python scripts/run_experiments.py execution   how much did the unachievable
                                                   same-close fill flatter us?
     python scripts/run_experiments.py velocity    level/velocity weight sweep
+    python scripts/run_experiments.py offset      skip the top 1-5 ranks?
     python scripts/run_experiments.py vix         legacy VIX regime thresholds
     python scripts/run_experiments.py zscore      z-score method and window
     python scripts/run_experiments.py all
@@ -685,6 +686,64 @@ def suite_entry_score():
     return exps
 
 
+def suite_offset():
+    """
+    Rank offset — does skipping the leaders beat holding them?
+
+    The premise: the top-ranked name has already made its move, so a book of
+    ranks 2-5 (or 3-6, or 4-7) buys the names still on their way up instead of
+    the one about to give it back.
+
+    What the offset actually is, stated plainly because it decides how to read
+    the result: it is a claim about the composite score's behaviour at its own
+    top end — that the score is *anti*-predictive in its highest band while
+    staying predictive just below. It is not a valuation or extension filter; it
+    does not know or care whether the skipped name is stretched. If the score
+    ranks well everywhere, every offset should lose roughly monotonically, and
+    the loss is a direct measure of how much information the top rank carries.
+
+    Two scopes, per the request to test both:
+      scope='all'     the offset also applies to the reduced momentum slice of
+                      an elevated/crisis book (2 slots become ranks 3-4)
+      scope='normal'  the offset stands down whenever the VIX overlay has
+                      already cut exposure
+
+    Offsets run to 5 so a genuine gradient is distinguishable from edge noise: a
+    real effect should decay smoothly, whereas one offset winning with its
+    neighbours behind it is a coincidence in a universe this size.
+
+    Book size is held at top_n=4 throughout, so nothing here confounds the
+    offset with a position-sizing change. The clamp in `_apply_rank_offset`
+    guarantees a full book even when the offset would run off the end of the
+    eligible list.
+
+    Read the subperiod table before the headline. The universe is ~30 names, so
+    an offset of 3 is a materially different book, and a full-sample win that
+    comes from one segment is a fit, not an effect.
+    """
+    base = production_config()
+    exps = [variant(base, "offset0_top1to4", "current production: ranks 1-4",
+                    rank_offset=0)]
+
+    for offset in (1, 2, 3, 4, 5):
+        span = f"{offset + 1}-{offset + base.top_n}"
+        exps.append(
+            variant(base, f"offset{offset}_top{span}", f"ranks {span}, all regimes",
+                    rank_offset=offset, rank_offset_scope="all")
+        )
+
+    # Same offsets, standing down under the regime overlay.  If these track the
+    # 'all' variants closely, the simpler scope is the one to keep.
+    for offset in (1, 2, 3):
+        span = f"{offset + 1}-{offset + base.top_n}"
+        exps.append(
+            variant(base, f"offset{offset}_normalonly", f"ranks {span}, normal only",
+                    rank_offset=offset, rank_offset_scope="normal")
+        )
+
+    return exps
+
+
 def suite_vix():
     """Legacy VIX regime thresholds. Superseded by the Track A ladder."""
     base = production_config()
@@ -743,6 +802,8 @@ SUITES = {
     "exits":     (suite_exits, "rsi_ma_exit_comparison.csv", "no_rank_exit"),
     "swaps":     (suite_swaps, "rsi_ma_swap_comparison.csv", "no_swap"),
     "entryscore": (suite_entry_score, "rsi_ma_entry_score.csv", "baseline_L70V30"),
+    "offset":    (suite_offset, "rsi_ma_rank_offset.csv",
+                  "offset0_top1to4"),
     "vix":       (suite_vix,       "rsi_ma_vix_regime_comparison.csv",
                   "no_vix_filter"),
     "zscore":    (suite_zscore,    "rsi_ma_zscore_comparison.csv",

@@ -13,7 +13,8 @@ from typing import Optional, Tuple
 
 import pandas as pd
 
-from .backtest import PortfolioResult, build_target_portfolios, simulate_portfolio
+from .backtest import (PortfolioResult, build_target_portfolios,
+                       selection_for_date, simulate_portfolio)
 from .config import ModelConfig
 from .data import PriceData
 from .signals import apply_velocity_blend, calculate_composite_scores
@@ -71,6 +72,8 @@ def run_strategy(prices: PriceData, config: ModelConfig,
         graduated_config=config.graduated_vix,
         exit_config=config.exits,
         close=prices.close,
+        rank_offset=config.rank_offset,
+        rank_offset_scope=config.rank_offset_scope,
         verbose=verbose,
     )
 
@@ -79,3 +82,49 @@ def run_strategy(prices: PriceData, config: ModelConfig,
     )
     result.rebalance_history = rebalance_history
     return result
+
+
+def current_selection(prices: PriceData, config: ModelConfig,
+                      ranking_scores: Optional[pd.DataFrame] = None,
+                      base_scores: Optional[pd.DataFrame] = None,
+                      as_of=None,
+                      underlying_path: Optional[str] = None):
+    """
+    The selection the model would make right now, off the rotation clock.
+
+    The live book rotates on `config.hold_days`, so between rotations the held
+    names and the currently top-ranked names diverge.  Reporting only the held
+    book hides that divergence; reporting only the current ranking invites
+    trading it, which is a different (and untested) strategy.  Both are printed
+    so the gap is visible and the decision to act on it is deliberate.
+
+    Pass `ranking_scores`/`base_scores` if they are already computed — scoring
+    is the expensive step and there is no reason to repeat it.
+
+    Returns `(record, ranked)` as `selection_for_date`, or None.
+    """
+    if ranking_scores is None or base_scores is None:
+        ranking_scores, base_scores, _ = compute_scores(
+            prices, config, underlying_path)
+
+    return selection_for_date(
+        ranking_scores,
+        price_columns=list(prices.close.columns),
+        date=as_of,
+        top_n=config.top_n,
+        min_data_days=config.min_data_days,
+        hold_days=config.hold_days,
+        vix_data=prices.vix,
+        vix_config=config.vix,
+        base_composite_scores=base_scores,
+        velocity_config=config.velocity,
+        correlation_config=config.correlation,
+        graduated_config=config.graduated_vix,
+        # Exits are an intra-hold rotation rule, so they play no part in a
+        # single-date selection.  Passing None also skips building the daily
+        # rank panel, which is pure cost here.
+        exit_config=None,
+        close=prices.close,
+        rank_offset=config.rank_offset,
+        rank_offset_scope=config.rank_offset_scope,
+    )

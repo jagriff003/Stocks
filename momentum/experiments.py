@@ -100,6 +100,8 @@ def comparison_table(results: List[ExperimentResult]) -> pd.DataFrame:
             "VIX": vix_label,
             "Hold Days": cfg.hold_days,
             "Top N": cfg.top_n,
+            "Rank Offset": cfg.rank_offset,
+            "Offset Scope": cfg.rank_offset_scope,
             "CAGR": m["cagr"],
             "Sharpe": m["sharpe_ratio"],
             "Sortino": m["sortino_ratio"],
