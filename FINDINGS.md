@@ -4,6 +4,9 @@ Measured 2026-07-25 over 2010-2026, 52-ticker universe, `next_open` execution
 with 7.5 bps one-way slippage unless stated. Every number here is reproducible
 from a named command; nothing is from memory.
 
+Operational companions: **RUNBOOK.md** (what to do when the health monitor
+fires) and **TODO.md** (open work, with what to measure).
+
 Read **deltas, not levels**. Absolute figures carry survivorship bias from
 applying today's screened universe backwards. The difference between two
 variants over the same universe does not.

@@ -29,7 +29,8 @@ from momentum.config import (ExecutionConfig, ModelConfig, ScoringConfig,
                              VelocityConfig, VixRegimeConfig, snapshot_config)
 from momentum.data import export_price_data, load_data
 from momentum.health import (HealthConfig, compute_health, current_state,
-                             status_line)
+                             defensive_exposure, defensive_line,
+                             defensive_state, status_line)
 from momentum.experiments import legacy_config, production_config
 from momentum.reports import (correlation_matrices, individual_stock_performance,
                               portfolio_concentration, portfolio_correlation,
@@ -297,6 +298,9 @@ def main() -> int:
         print()
         print("=" * 78)
         print(status_line(state, health_config))
+        exposure = defensive_exposure(result.holdings, health_config)
+        print(defensive_line(defensive_state(exposure, health_config),
+                             health_config))
         if state.get("state") == "ALARM":
             print("  -> investigate: scripts/monitor_health.py for the record, "
                   "then screen_universe.py")

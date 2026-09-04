@@ -32,7 +32,8 @@ sys.path.insert(0, str(REPO_ROOT))
 from momentum.data import load_data
 from momentum.experiments import production_config
 from momentum.health import (HealthConfig, calibration_table, compute_health,
-                             current_state, episodes, excess_column,
+                             current_state, defensive_exposure,
+                             defensive_state, episodes, excess_column,
                              independent_windows)
 from momentum.strategy import run_strategy
 from momentum.universe import current_symbols
@@ -104,6 +105,41 @@ def print_scale(health: pd.DataFrame, config: HealthConfig) -> None:
     print(f"\n  A z of -2 on today's scale is a shortfall of about "
           f"{2 * float(live['scale_raw'].iloc[-1]):.1%} (raw) / {2 * scale:.1%} "
           f"(adjusted)\n  over {config.window} trading days.")
+
+
+def print_posture(exposure: pd.DataFrame, config: HealthConfig) -> None:
+    """
+    The book composition the scale above was estimated over.
+
+    Printed next to the spread because the two are not independent: a scale
+    built from a book that was half-defensive describes a different strategy
+    from the one a fully-invested book is running, and the z inherits that
+    difference silently.
+    """
+    state = defensive_state(exposure, config)
+    live = exposure.dropna(subset=["weight"])
+
+    print()
+    print("=" * 78)
+    print("DEFENSIVE POSTURE  (SHY/TLT/IAU/SH — overlay fills plus the inverse ETF)")
+    print("=" * 78)
+    print(f"  {'today':<28}{state['weight']:>8.0%} of the book")
+    share = state["share_window"]
+    print(f"  {'last ' + str(config.window) + ' sessions':<28}"
+          + (f"{share:>8.0%} of days" if pd.notna(share) else f"{'n/a':>8}"))
+    print(f"  {'whole record':<28}{state['share_all']:>8.0%} of days"
+          f"   <- the scale was built on this mix")
+    print(f"  {'current unbroken streak':<28}{state['streak_days']:>8,} sessions")
+
+    longest, run = 0, 0
+    for flag in live["holding_any"].values:
+        run = run + 1 if flag else 0
+        longest = max(longest, run)
+    print(f"  {'longest streak on record':<28}{longest:>8,} sessions")
+    print()
+    print("  Read a rising share as the alarm's blind spot widening: a book parked")
+    print("  defensively through a rally trails the index for reasons unrelated to")
+    print("  whether the ranker still works.")
 
 
 def print_episodes(health: pd.DataFrame, threshold: float,
@@ -260,6 +296,7 @@ def main() -> int:
     health = compute_health(result.returns, prices.spy, health_config)
 
     print_scale(health, health_config)
+    print_posture(defensive_exposure(result.holdings, health_config), health_config)
     print_state(current_state(health, health_config), health_config)
     eps = print_episodes(health, args.threshold, args.confirm_days,
                          health_config, column=health_config.column)

@@ -157,6 +157,12 @@ class HealthConfig:
     scale: str = "expanding"
     risk_free_rate: float = 0.045
 
+    low_beta_symbols: Tuple[str, ...] = ("SHY", "TLT", "IAU", "SH")
+    #   SHY/TLT/IAU are the regime overlay's assigned fills; SH is not assigned
+    #   by anything — momentum picks the inverse ETF outright when the market is
+    #   falling, which is why it belongs in this set even though no config names
+    #   it as defensive.
+
     measure: str = "raw"
     alarm_z: float = -1.25
     alarm_points: float = -0.125
@@ -546,4 +552,104 @@ def status_line(state: Dict, config: Optional[HealthConfig] = None) -> str:
         line += (f"\n  breaching {state['alarm_run']}/{config.confirm_days} "
                  f"sessions (z <= {config.alarm_z:g} and "
                  f"{config.alarm_points:.0%})")
+    return line
+
+
+# --------------------------------------------------------------------------
+# Defensive posture — the composition the health scale is conditioned on
+# --------------------------------------------------------------------------
+
+def defensive_exposure(holdings: pd.Series,
+                       config: Optional[HealthConfig] = None) -> pd.DataFrame:
+    """
+    How much of the book sits in low-beta instruments, day by day.
+
+    This is not a performance measure and it does not feed the alarm.  It
+    watches the assumption the alarm rests on.
+
+    The excess-return scale is estimated over a record in which the book held a
+    low-beta name on ~42% of days, which is what makes the blended beta 0.48
+    rather than the 0.99 the momentum picks alone produce.  Those are two
+    different strategies wearing one name.  If a long calm market drives the
+    defensive share toward zero, the live book is a market-beta book being
+    scored against a scale built from a half-defensive one, and the z means
+    something different from what it meant when it was calibrated.  The reverse
+    matters more in practice: a book parked defensively through a rally trails
+    the index for reasons that have nothing to do with whether the ranker still
+    works, which is exactly the case the monitor is worst at diagnosing.
+
+    Columns
+    -------
+    weight        fraction of the book in low-beta names that day
+    holding_any   did the book hold at least one
+    share_window  rolling share of days holding at least one
+    weight_window rolling mean weight
+    """
+    config = config or HealthConfig()
+    low_beta = set(config.low_beta_symbols)
+
+    def weight(book) -> float:
+        if not isinstance(book, (list, tuple)) or not book:
+            return np.nan
+        return sum(1 for s in book if s in low_beta) / len(book)
+
+    frame = pd.DataFrame(index=pd.Index(holdings.index, name=holdings.index.name))
+    frame["weight"] = [weight(b) for b in holdings]
+    frame["holding_any"] = frame["weight"] > 0
+    frame["share_window"] = frame["holding_any"].rolling(
+        config.window, min_periods=config.window // 2).mean()
+    frame["weight_window"] = frame["weight"].rolling(
+        config.window, min_periods=config.window // 2).mean()
+    return frame
+
+
+def defensive_state(exposure: pd.DataFrame,
+                    config: Optional[HealthConfig] = None) -> Dict:
+    """
+    Today's posture, the recent share, and how long it has run.
+
+    `streak_days` is the one to watch: a book that has held a defensive name
+    without a break for months is making a sustained bet on the regime overlay,
+    and the overlay was never validated as a return source — Track A found that
+    de-risking forfeits the overnight premium.
+    """
+    config = config or HealthConfig()
+    live = exposure.dropna(subset=["weight"])
+    if live.empty:
+        return {"state": "UNKNOWN"}
+
+    row = live.iloc[-1]
+    flags = live["holding_any"]
+
+    streak = 0
+    for flag in flags.values[::-1]:
+        if not flag:
+            break
+        streak += 1
+
+    return {
+        "date": live.index[-1],
+        "weight": float(row["weight"]),
+        "share_window": float(row["share_window"]) if pd.notna(row["share_window"]) else np.nan,
+        "share_all": float(flags.mean()),
+        "streak_days": streak,
+    }
+
+
+def defensive_line(state: Dict, config: Optional[HealthConfig] = None) -> str:
+    """One line for the tail of a live run, beneath the health line."""
+    config = config or HealthConfig()
+    if state.get("state") == "UNKNOWN":
+        return "DEFENSIVE POSTURE: unknown"
+
+    share = state["share_window"]
+    share_txt = f"{share:.0%}" if pd.notna(share) else "n/a"
+    line = (f"DEFENSIVE POSTURE: {state['weight']:.0%} of book now, "
+            f"{share_txt} of last {config.window}d vs {state['share_all']:.0%} "
+            f"long-run")
+
+    if state["streak_days"] >= config.window // 2:
+        line += (f"\n  held without a break for {state['streak_days']} sessions "
+                 f"— a sustained bet on the regime overlay, which was never "
+                 f"validated as a return source")
     return line
