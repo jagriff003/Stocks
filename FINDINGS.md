@@ -27,6 +27,7 @@ mis-specified parameter, not from new features.
 | Track B — rank exits / score-gap swaps | **rejected** | -1.2 to -10.5pp; best is break-even |
 | Track C — acceleration, earlier entry | **rejected** | -0.8 to -9.3pp |
 | Track D — rank offset (skip top 1-5) | **rejected** | -2.0 to -9.8pp |
+| Model health monitor | **built** | diagnostic, not a return change |
 
 Live model: **19.84% CAGR, 0.91 Sharpe, -19.23% max drawdown, Calmar 1.03**,
 net of realistic fills and costs. The honest like-for-like starting point was
@@ -310,6 +311,67 @@ gold miner are one bet, and since IAU is the crisis fill, a stressed regime
 could hold gold twice.
 
 `python scripts/screen_universe.py`
+
+---
+
+## Model health monitor (built, with a stated limit)
+
+`monitor_health.py`, `momentum/health.py`, `rsi_ma_health_calibration.csv`
+
+A degradation warning: 126-day log excess return against SPY, zero-centered,
+scaled by its own historical spread, requiring both a z and a points breach
+sustained for 20 sessions. Surfaced on every live run.
+
+**The book's beta is 0.48, and that is a composition effect.**
+
+| Book composition | Share of days | Beta |
+|---|---|---|
+| Pure momentum | 58% | **0.994** |
+| Holding SHY/TLT/IAU or SH | 42% | 0.120 |
+| Holding SH specifically | 14.6% | -0.026 |
+| Blended | 100% | 0.431 |
+
+The momentum picks are a market-beta book. They do **not** rise when the market
+falls — on pure-momentum days the model is positive on only 26.2% of SPY-down
+days, with down capture 0.90 against up capture 1.09. The low headline beta
+comes from the 36.3% of days holding regime-assigned SHY/TLT/IAU and the 14.6%
+holding SH, which momentum picks outright in a downturn.
+
+This is why the alarm runs on **raw** excess. Beta-adjusting sounds prudent and
+does the wrong thing here: at beta 0.48 CAPM asks the model to beat only half of
+SPY's move, so it forgives lagging in *rising* markets. On 2026-09-02 the model
+returned 6.65% against SPY's 12.27% — trailing by 5.6 points — and scored an
+adjusted z of +0.04. The adjusted series never reaches z -2 anywhere in the
+record. The beta-adjusted number is kept beside the raw one as a diagnosis: raw
+bad and adjusted fine means a half-beta book failed to keep up with a rally;
+both bad means the picks stopped working.
+
+**What calibrated, and what didn't.** The rule fires twice in eleven years
+(2019-07, 2021-08), median 28 days, 2.0% of the record. That rarity is stable —
+across every record length and threshold tried it fires two to five times, the
+right order for a review trigger.
+
+What is *not* estimable is whether firing predicts anything. Median forward
+six-month excess after a trigger swings from -2.6% to +4.8% depending on record
+start, points floor, and threshold, on two to five observations. The answer did
+not come out negative; it came out unmeasurable. So the monitor is documented and
+reported as a REVIEW TRIGGER — "you are in the worst tail of your own history, go
+look" — never as a predictive warning.
+
+Three measurement notes that shaped the build:
+
+- **Overlapping windows.** Daily 126-day windows share 125 of 126 days; the
+  record holds ~22-32 independent windows, not thousands. `z < -2` carries none
+  of its textbook rarity, so thresholds come from the episode record and
+  episodes are counted, not days.
+- **The z is not scale-stable.** The same day scores -0.47 from a 2005 start and
+  -0.59 from 2010, purely because the expanding SD differs. The monitor's default
+  start is pinned to `run_live`'s for that reason, and the points floor exists to
+  stop the bar drifting as history accumulates. At today's scale the floor
+  (-12.5%) is stricter than z -1.25 (-10.9%) and is the binding condition.
+- **Survivorship cuts the other way here.** The historical record is optimistic,
+  so live shortfalls will be more common than this calibration implies. The bar
+  should be read as "what would I act on", not "what was historically rare".
 
 ---
 

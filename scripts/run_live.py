@@ -28,6 +28,8 @@ sys.path.insert(0, str(REPO_ROOT))
 from momentum.config import (ExecutionConfig, ModelConfig, ScoringConfig,
                              VelocityConfig, VixRegimeConfig, snapshot_config)
 from momentum.data import export_price_data, load_data
+from momentum.health import (HealthConfig, compute_health, current_state,
+                             status_line)
 from momentum.experiments import legacy_config, production_config
 from momentum.reports import (correlation_matrices, individual_stock_performance,
                               portfolio_concentration, portfolio_correlation,
@@ -279,6 +281,29 @@ def main() -> int:
         matrix.to_csv(path)
         print(summarize_correlations(matrix, period))
         print(f"Exported to: {path.name}")
+
+    # --- health monitor ---
+    #
+    # Above the rotation sets rather than below them: if the model is in a
+    # sustained shortfall against the market, that is context for reading the
+    # picks, not a footnote to them.  ALARM means investigate, never trade —
+    # see momentum/health.py on why the historical record does not support
+    # treating this as predictive.
+    try:
+        health_config = HealthConfig(
+            risk_free_rate=config.execution.risk_free_rate)
+        health = compute_health(result.returns, prices.spy, health_config)
+        state = current_state(health, health_config)
+        print()
+        print("=" * 78)
+        print(status_line(state, health_config))
+        if state.get("state") == "ALARM":
+            print("  -> investigate: scripts/monitor_health.py for the record, "
+                  "then screen_universe.py")
+        print("=" * 78)
+    except Exception as exc:          # a monitor must never break the live run
+        print()
+        print(f"(Health monitor skipped: {exc})")
 
     # --- the two sets, last so they need no scrolling ---
     print_rotation_sets(result, prices, config, ranking_scores,
