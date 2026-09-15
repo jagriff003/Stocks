@@ -114,3 +114,58 @@ the full sample by winning one segment is a fit, not a finding.
 - **Do not treat it as predictive.** Forward six-month excess after a trigger
   swings from -2.6% to +4.8% depending on settings, on two to five observations.
   It is a prompt to look, and nothing more.
+
+---
+
+## When to run on a rebalance day
+
+Measured 2026-09-15 by sampling Yahoo's daily bar every five minutes across the
+close (`analyze_run_date_sensitivity.py` covers the cost side; the settle timing
+was a one-off probe).
+
+**The bar settles within minutes of the close.** Prices ticked continuously
+until 16:00 ET, froze at 16:05, and the last consolidation adjustments — under
+4 bps on every name sampled, zero on most — landed by 16:15 ET.
+
+| | |
+|---|---|
+| Safe to run | **16:15 ET onward** (13:15 Arizona), same day |
+| Max drift after 16:05 ET | 3.5 bps (BR); SPY/AAPL/MSFT 0.0-0.7 bps |
+
+So there is no need to wait for the following morning. Run any time after the
+close on the rebalance date and the panel carries that date's close.
+
+### The gap that actually matters
+
+Not script-run-to-trade. It is **the close the model ranked on, to the open you
+fill at** — and the target is to *hit* the modelled one overnight
+(`close(T) -> open(T+1)`), not to shrink it. Shrinking it further is
+`same_close`, which is unachievable; the overnight suite prices that difference
+at 20.90% vs 20.05% CAGR, so ~85 bps/yr is the cost of the overnight you are
+structurally stuck with.
+
+Stretching it costs roughly the same per session from either end:
+
+| sessions | stale data (fixed trade date) | late fill (correct book) |
+|---|---|---|
+| 1 | -9.9 bps (t -1.26) | -4.0 bps (t -0.69) |
+| 2 | -18.4 (t -1.77) | -11.3 (t -1.46) |
+| 3 | -27.0 (t -2.33) | -31.4 (t -2.98) |
+
+One session either way is inside the noise. Read the **dispersion**, not the
+mean: a one-session-stale panel picks a different name **56% of the time**, with
+outcomes from -264 to +214 bps. It is not a slightly worse book, it is a coin
+flip on roughly one position in four.
+
+### If the panel is short
+
+On 2026-09-03 a run at 22:04 ET — six hours after that bar had settled —
+produced a panel ending 2026-09-02, and nothing in the output said so. That was
+a provider or request failure, not a timing one; waiting longer would not have
+fixed it.
+
+`load_data` now warns on both failure modes, and `run_live.py` prints
+`Signal session:` next to the run date. **If those two dates are not the session
+you mean to trade on, do not trade the book** — re-run with `--no-cache`. The
+cost of one stale session is small in expectation and wide in outcome, which is
+exactly the combination not worth accepting when re-running is free.

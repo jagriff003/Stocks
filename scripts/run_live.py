@@ -195,6 +195,9 @@ def main() -> int:
     parser.add_argument("--start", default="2010-01-01")
     parser.add_argument("--no-cache", action="store_true",
                         help="force a fresh download")
+    parser.add_argument("--drop-unsettled", action="store_true",
+                        help="exclude today's session when the market has not "
+                             "closed yet, instead of warning about it")
     parser.add_argument("--as-of", default=None,
                         help="date for the CURRENT SET, e.g. 2026-09-02; "
                              "defaults to the latest available session")
@@ -217,7 +220,13 @@ def main() -> int:
 
     symbols = current_symbols()
     prices = load_data(symbols, start_date=args.start,
-                       use_cache=not args.no_cache)
+                       use_cache=not args.no_cache,
+                       drop_unsettled=args.drop_unsettled)
+
+    # The panel's end date decides which session the book is built from, so it
+    # belongs in the header next to the run date rather than buried in the load
+    # output.  When the two differ, the run is not the rebalance-day run.
+    print(f"\nSignal session: {prices.index[-1]:%Y-%m-%d}  (run date {today:%Y-%m-%d})")
 
     # --- price panel export (Request #2) ---
     print("\n=== EXPORTING PRICE DATA ===")
