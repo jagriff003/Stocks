@@ -43,6 +43,12 @@ Live model: **19.84% CAGR, 0.91 Sharpe, -19.23% max drawdown, Calmar 1.03**,
 net of realistic fills and costs. The honest like-for-like starting point was
 12.80%.
 
+**Two standing deductions from that figure**, recorded 2026-09-17 and
+independent of each other: roughly 3.2pp is rotation-phase luck (see "Rotation
+phase is worth ~3pp of the headline CAGR"), and an unbounded further amount is
+survivorship (TODO item 6). The phase-averaged figure for this configuration is
+16.42%.
+
 **Read that next to Track F.** Owning the same universe equal-weighted, trading
 almost never, earns 19.99% at a 0.92 Sharpe — the model's return advantage over
 its own universe is negative. What the model delivers is drawdown: -19.23%
@@ -704,6 +710,66 @@ volatility and 128 trades a year, or 17.90% at 13.2% volatility and 316.** That
 choice should be made on capital and temperament, and revisited as the account
 grows, since concentration risk in four names scales with the balance while the
 wide book's trade count does not.
+
+---
+
+## Rotation phase is worth ~3pp of the headline CAGR
+
+**Found 2026-09-17**, while building the signal-decay test, which the effect
+invalidated on its first run.
+
+`hold_days` does not only set how long a book is held.  It sets the entire
+schedule of dates on which rebalances happen, and that schedule matters on its
+own.  Holding the configuration completely fixed at `hold_days=14` and shifting
+only the rotation PHASE - walking `min_data_days` from 200 to 213, which moves
+the start of the walk by one session at a time and changes the eligibility gate
+by at most 13 days out of 200 - produces:
+
+| hold_days | phases | mean CAGR | sd | min | max | range |
+|---|---|---|---|---|---|---|
+| 10 | 14 | 12.82% | 1.70% | 11.13% | 15.16% | 4.04pp |
+| **14** | 14 | **16.42%** | **2.68%** | 12.84% | **19.78%** | **6.94pp** |
+| 18 | 14 | 13.78% | 0.78% | 12.96% | 14.88% | 1.93pp |
+
+**The live configuration sits at 19.64%, against a phase-averaged 16.42% for the
+same configuration.** It is within 0.14pp of the best of fourteen phases. Nothing
+was tuned to achieve that - the phase is an accident of when the record starts -
+but it means roughly **3.2pp of the headline is the particular calendar history
+handed us**, not the model.
+
+### What this does and does not invalidate
+
+**Comparisons that share a rotation schedule are unaffected.** Track E (book
+size), Track F (null benchmark and IC) and Track G sweeps 1 and 2 all held
+`hold_days=14` and `min_data_days=200` across every arm, so every configuration
+compared sat on the identical schedule and the differences between them are
+clean. The null benchmark's percentiles are likewise unaffected: the random arms
+ran on the same phase as the ranked ones.
+
+**Comparisons that vary the schedule are confounded.** Track G sweep 3 swept
+`hold_days` 14 to 252 and reported a sharp drawdown penalty for longer holds.
+Part of that is real and part is phase. It should be re-read as suggestive only
+until re-run phase-averaged.
+
+**The absolute headline is inflated.** Every CAGR quoted anywhere in this file
+carries this, on top of the survivorship premium that TODO item 6 exists to
+bound. The two are independent and they compound. A forward-looking expectation
+for this configuration is closer to **16.4% before survivorship** than to 19.6%,
+and lower again after.
+
+### Why this was not caught earlier
+
+Because `hold_days` was never swept in this framework. `run_date_sensitivity`
+asks a neighbouring but different question - it holds the fill schedule FIXED
+and varies only the information date, deliberately, to isolate data staleness.
+Nothing measured what happens when the schedule itself moves.
+
+The general lesson is worth stating plainly, because it generalizes past this
+parameter: **a backtest of a periodic strategy has a free parameter nobody
+declares - which day the clock starts on.** Any result quoted from a single
+phase is one draw from a distribution whose spread here is several points of
+CAGR. Sweeps of anything that shifts the schedule must be phase-averaged or they
+report alignment luck.
 
 ---
 
