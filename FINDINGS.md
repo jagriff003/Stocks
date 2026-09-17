@@ -20,6 +20,10 @@ rejected on evidence, as was Track D (rank offset), added 2026-09-03. The
 gains that did materialize came from fixing two measurement defects and one
 mis-specified parameter, not from new features.
 
+Track E (book size, 2026-09-17) is the first test to *confirm* a live setting
+rather than reject a proposed change: `top_n=4` is best on all four headline
+metrics and is subperiod-consistent.
+
 | Change | Status | CAGR effect |
 |---|---|---|
 | Level/velocity scale mismatch | **fixed** | prerequisite — made weights meaningful |
@@ -30,6 +34,7 @@ mis-specified parameter, not from new features.
 | Track B — rank exits / score-gap swaps | **rejected** | -1.2 to -10.5pp; best is break-even |
 | Track C — acceleration, earlier entry | **rejected** | -0.8 to -9.3pp |
 | Track D — rank offset (skip top 1-5) | **rejected** | -2.0 to -9.8pp |
+| Track E — book size `top_n` 1..8 | **confirmed 4** | -1.1 to -7.5pp for any other size |
 | Model health monitor | **built** | diagnostic, not a return change |
 
 Live model: **19.84% CAGR, 0.91 Sharpe, -19.23% max drawdown, Calmar 1.03**,
@@ -247,6 +252,160 @@ result is reproducible without re-deriving the machinery.
 
 ---
 
+## Track E — book size (`top_n` 1..8): the live value is already right
+
+**Run 2026-09-17.** `python scripts/analyze_book_size.py`. First sweep of book
+size in this framework — `top_n=4` had been held fixed through Tracks A-D, so
+nothing previously recorded was confounded with it, and nothing previously
+recorded tested it either.
+
+The volatility overlay was held fixed, not scaled: `vix.elevated_top_n` stays at
+2 for every book size, so an elevated-VIX regime always keeps the same *number*
+of momentum names and the defensive sleeve absorbs the rest. The defensive
+*share* therefore varies by construction, and cannot not: only three defensive
+tickers exist (SHY/TLT/IAU), so the fill is hard-capped at three names and a
+book of 8 can be at most 38% defensive. The realized exposure is reported
+alongside, and it is milder than that framing suggests — the mean defensive
+weight sits in a 11-15% band across the whole sweep, while the share of *days*
+touching the sleeve rises 11% → 45%. The overlay spreads over more days as the
+book grows; it does not get heavier.
+
+| top_n | CAGR | Sharpe | MaxDD | Calmar | Trades/yr | Turnover | Mean book |
+|---|---|---|---|---|---|---|---|
+| 1 | 12.12% | 0.27 | -60.92% | 0.20 | 43.6 | 2106% | 1.04 |
+| 2 | 18.27% | 0.65 | -37.49% | 0.49 | 74.6 | 1867% | 2.00 |
+| 3 | 17.35% | 0.70 | -30.96% | 0.56 | 104.9 | 1773% | 2.96 |
+| **4** | **19.58%** | **0.90** | **-19.23%** | **1.02** | 127.8 | 1630% | 3.91 |
+| 5 | 18.47% | 0.88 | -21.72% | 0.85 | 149.5 | 1538% | 4.85 |
+| 6 | 15.89% | 0.75 | -22.35% | 0.71 | 170.7 | 1487% | 5.74 |
+| 7 | 15.96% | 0.77 | -20.78% | 0.77 | 186.9 | 1409% | 6.62 |
+| 8 | 15.84% | 0.78 | -20.14% | 0.79 | 204.8 | 1363% | 7.51 |
+
+`top_n=4` is best on CAGR, Sharpe, MaxDD and Calmar simultaneously, and is one
+of only two sizes (with 3) beating the median in all three subperiods. **No
+change is indicated.**
+
+**Read the margin honestly.** The sweep is not monotone — 2 beats 3 by 0.92pp,
+7 beats 6 by 0.07pp — which puts the noise band at roughly 1-2pp of CAGR. On
+CAGR alone, 3, 4 and 5 are one plateau and the win is not significant. What
+separates 4 is not its CAGR but that the *drawdown* result is monotone and
+large: -60.9% → -37.5% → -31.0% → -19.2%, then flat. Diversification buys
+drawdown up to four names and stops paying after. That is the durable part of
+this result; the CAGR ranking within 3-5 is not.
+
+**The cross-check that matters.** Re-run with `--scale-elevated`, which
+preserves the live 2-of-4 elevated ratio instead of holding the count fixed,
+`top_n=4` still wins (19.58%), 5 is still second (18.47%), and 3 and 4 are still
+the only subperiod-consistent sizes. The verdict does not depend on how the
+overlay is scaled, which is the confound this sweep could not design away.
+CRISIS is invariant to `top_n` by construction (it holds `crisis_symbols`
+outright), so no part of the sweep moves the crisis book.
+
+**On minimizing trades.** Fewer names is genuinely cheaper — `top_n=2` trades
+74.6 times a year against 127.8, and has the best CAGR-per-trade of any size
+above 1. It is still the wrong trade: 1.31pp of CAGR is the small half of the
+cost, and the large half is doubling max drawdown to -37.5%. Trade count falls
+with book size but *turnover* rises, because a smaller book replaces a larger
+fraction of itself on each rotation. Cutting to 2 does not buy a quieter
+strategy; it buys a louder one that trades less often.
+
+**`top_n=1` is not a strategy.** -60.9% drawdown, 0.27 Sharpe, and a first
+subperiod at -3.68%. Recorded so it does not get proposed again.
+
+Defect found and fixed in the course of this: the ELEVATED branch computed
+`n_momentum = min(elevated_top_n, len(valid_stocks))` without clamping to
+`top_n`, so any book smaller than `elevated_top_n` would *grow* in an elevated
+regime — `top_n=1` held two names in the regime whose purpose is cutting
+exposure. A no-op at the live 2-of-4 setting (parity test still passes to
+floating point), latent only because the sweep had never gone below 2.
+
+---
+
+## Outsized single-stock events supply 8-15% of the gain, not most of it
+
+**Run 2026-09-17.** `python scripts/analyze_outsized.py`. The question: is the
+record a handful of earnings surprises wearing a strategy's clothes?
+
+Answer: no. Two independent readings agree, and neither depends on a threshold
+chosen after seeing the answer.
+
+The decomposition is exact. Every position-day's contribution to the portfolio
+return is derived and reconciled against `simulate_portfolio`'s own return
+series to **2.7e-16** before anything is reported; the script refuses to print
+if it does not reconcile. (It caught a real bug doing so:
+`PortfolioResult.holdings` is the book *realized* on each return date, which is
+the target series lagged a day, and feeding it the wrong one shifted every
+contribution by a session.)
+
+**1. The tails are near-symmetric.** Over 15,821 position-days:
+
+| Tail depth | Days | Top-tail P&L | Bottom-tail P&L | Ratio |
+|---|---|---|---|---|
+| 0.1% | 16 | +0.56 | -0.49 | 1.13 |
+| 1.0% | 158 | +2.93 | -2.57 | 1.14 |
+| 5.0% | 791 | +8.07 | -7.32 | 1.10 |
+| 10.0% | 1,582 | +12.02 | -10.96 | 1.10 |
+
+A lottery-dependent strategy has a top tail much fatter than its bottom tail.
+This one runs 1.10-1.16 at every depth. The top 1% of position-days supply 13.2%
+of gross gains — against a 1% share of days, concentrated, but nowhere near
+load-bearing, and very nearly cancelled by the matching bottom 1%.
+
+**2. The trim curve.** Zero out the K most extreme position-days and recompute
+(the slot is still held; only that name's move is removed):
+
+| K | % of days | top only | bottom only | **both tails** |
+|---|---|---|---|---|
+| 0 | — | 19.58% | 19.58% | 19.58% |
+| 10 | 0.06% | 16.61% | 22.59% | 18.54% |
+| 50 | 0.32% | 9.39% | 29.37% | 15.73% |
+| 100 | 0.63% | 3.41% | 36.25% | 14.90% |
+| 250 | 1.58% | -8.44% | 52.69% | **14.49%** |
+
+The first column is the alarming one and it is also the meaningless one: delete
+the best days of *any* equity strategy and it dies. The third column is the
+answer. Removing the 250 largest moves in **both** directions — 1.58% of all
+position-days, the entire fat tail — leaves 14.49% CAGR and a 0.74 Sharpe
+against 0.90. **Roughly three quarters of the compounding survives the complete
+removal of the tail.** The remaining 5.09pp is what genuine positive skew is
+worth here, which is real but is not the strategy.
+
+**3. Event tagging, and it is threshold-robust.** Tagging a position-day when
+the stock's move net of trailing beta to SPY exceeds σ trailing residual
+standard deviations (beta and σ estimated on a window ending the day *before*
+the move, so an event never calibrates its own yardstick):
+
+| σ | Tagged days | % of days | Upside P&L | Downside P&L | **Net share** |
+|---|---|---|---|---|---|
+| 2.5 | 404 | 2.55% | +2.23 | -1.76 | **14.7%** |
+| 3.0 | 217 | 1.37% | +1.55 | -1.09 | **14.4%** |
+| 4.0 | 89 | 0.56% | +0.85 | -0.61 | **7.6%** |
+| 5.0 | 42 | 0.27% | +0.61 | -0.29 | **10.0%** |
+
+The headline number does not move with the threshold: outsized events are worth
+**8-15% of net P&L** wherever the line is drawn, because the upside and downside
+surprises largely offset. The other 85-92% is the ordinary grind of 15,000-odd
+unremarkable position-days each earning ~0.0002.
+
+**The mechanism intuition was right; the magnitude was not.** The extreme tail
+*is* news-driven, and increasingly so the further out you go: overnight gap
+accounts for a median 37% of the absolute move on untagged days, 49% at σ≥4, and
+**72% at σ≥5**. Gap dominance is the earnings signature (no earnings calendar
+exists in the repo — this is a proxy, not a lookup). So the biggest events are
+indeed earnings and news. They are simply not carrying the return.
+
+**No single-name dependency either.** 51 tickers were held; the top 8 supply
+half the summed contribution and no ticker exceeds 9.3% (TSLA 9.3%, NVDA 9.1%,
+STX 6.6%). The largest single contribution in sixteen years is META on
+2023-02-02, +23.3% on a +19.8% gap, worth 5.82% of that day's book — which the
+trim curve prices at 0.47pp of lifetime CAGR.
+
+**The standing caveat applies and cuts against comfort.** These are today's
+screened tickers applied backwards; survivorship bias means the real historical
+tail was worse than this, in both directions.
+
+---
+
 ## What did work
 
 **The velocity window, on a corrected scale.** The original 0.7/0.3 selection
@@ -389,6 +548,10 @@ Three measurement notes that shaped the build:
 3. **Equal-weight drift.** Returns assume a costless daily rebalance back to
    equal weight. It slightly understates a runaway winner's contribution. Kept
    for comparability with all historical results, but it is an approximation.
+   Note this biases the outsized-event analysis in the *reassuring* direction:
+   a real book would let a winner run to more than its 1/N weight, so the true
+   tail contribution is somewhat larger than the 8-15% measured. The effect is
+   bounded by the hold period (14 days), not by the life of the position.
 4. **Nothing found improves the signal.** Every timing idea tested failed
    because the composite does not produce timely information — rank decay is
    directionless, challengers arrive too late, acceleration is noise. If there

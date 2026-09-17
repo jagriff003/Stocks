@@ -278,7 +278,13 @@ class _PortfolioBuilder:
                     ranked, date, self.top_n, offset)[0]
 
             elif regime == ELEVATED and self.vix_config is not None:
-                n_momentum = min(self.vix_config.elevated_top_n, len(valid_stocks))
+                # Clamped to top_n as well: without it a book smaller than
+                # elevated_top_n would GROW in an elevated regime (top_n=1 with
+                # elevated_top_n=2 held two names), which is the opposite of
+                # what the overlay is for.  A no-op at the live 2-of-4 setting;
+                # it only bites when sweeping book size below elevated_top_n.
+                n_momentum = min(self.vix_config.elevated_top_n, self.top_n,
+                                 len(valid_stocks))
                 momentum_picks, trace = self.pick_momentum(
                     ranked, date, n_momentum, offset)
                 fill = [s for s in self.vix_config.defensive_symbols

@@ -46,6 +46,30 @@ its cost is not the same as removing it.
 
 ---
 
+## 1b. Does equal-weight drift understate the tail? (raised 2026-09-17)
+
+The outsized-event analysis concluded that extreme single-stock moves supply
+only 8-15% of net P&L. That rests on the simulator's equal-weight-reset
+convention: a name that gaps +20% is rebalanced back to 1/N the next day, so it
+never compounds at its enlarged weight.
+
+A real book does not do that. Within a 14-day hold, a name up 20% carries ~28%
+of a four-name book rather than 25% for the remainder of the period, so the true
+tail contribution is somewhat **larger** than measured. The bias is bounded by
+the hold period, not by the life of the position, so the effect should be small
+— but "should be" is not a measurement.
+
+To measure: re-run `scripts/analyze_outsized.py` against a drift-aware
+simulation (weights float within a hold, reset at rotation) and compare the net
+share of tagged P&L. What would count as an answer: the σ-sweep table re-run on
+drifting weights. If the 8-15% band moves past ~25% the conclusion weakens.
+
+Note this cannot become the default simulator — `_segment_return`'s convention
+is load-bearing for comparability with every historical result in FINDINGS. It
+would be a parallel path used only for this diagnostic.
+
+---
+
 ## 2. Live-vs-simulated reconciliation
 
 **The health monitor's blind spot.** It scores the simulated return stream —
