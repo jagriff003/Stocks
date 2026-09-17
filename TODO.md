@@ -198,7 +198,14 @@ its cost is not the same as removing it.
 
 ---
 
-## 1b. Does equal-weight drift understate the tail? (raised 2026-09-17)
+## 1b. Does equal-weight drift understate the tail? — ANSWERED, CLOSED 2026-09-17
+
+**Answered by Track G.** `momentum/drift.py` was built for the wide-book work
+and prices this directly: the legacy convention's free daily rebalance is worth
+**0.07pp gross**, and rebalancing policy (`never` / `on_rotation` / `periodic` /
+`band`) moves nothing by more than 0.2pp at any book size or hold length. The
+approximation is real and negligible. No re-run of the outsized-event analysis
+is warranted. Original text follows.
 
 The outsized-event analysis concluded that extreme single-stock moves supply
 only 8-15% of net P&L. That rests on the simulator's equal-weight-reset

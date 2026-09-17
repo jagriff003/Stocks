@@ -36,6 +36,7 @@ metrics and is subperiod-consistent.
 | Track D — rank offset (skip top 1-5) | **rejected** | -2.0 to -9.8pp |
 | Track E — book size `top_n` 1..8 | **confirmed 4** | -1.1 to -7.5pp for any other size |
 | Track F — null benchmark / ranker IC | **measured** | ranking worth +0.84pp gross; universe carries the rest |
+| Track G — wide book + weight overlay | **viable alternative** | -1.6pp CAGR, +0.12 Sharpe, -3.6pp vol, 2.5x trades |
 | Model health monitor | **built** | diagnostic, not a return change |
 
 Live model: **19.84% CAGR, 0.91 Sharpe, -19.23% max drawdown, Calmar 1.03**,
@@ -566,6 +567,143 @@ What it changes is where effort goes:
    19.99% is partly a statement about 2010-2026 and partly an artifact of
    choosing the names in 2026. Until that is bounded (TODO item 6) the honest
    headline is unknown. This is now the most valuable open item in the repo.
+
+---
+
+## Track G — the wide-book redesign: it works, but not for the reason it was tried
+
+**Run 2026-09-17.** `scripts/analyze_wide_book.py`, on the new weight-aware
+simulator `momentum/drift.py`. Motivated by Track F: if the universe produces
+the return and the ranker does not, hold more of the universe and stop paying
+attention to the ranking.
+
+Three results, of which the second is the one that matters and the third is the
+one that kills the motivation.
+
+### 1. The slot-based overlay does not survive a wide book — it inverts
+
+| top_n | overlay on | overlay OFF | overlay worth |
+|---|---|---|---|
+| 4 | 19.52% / -19.26% | 16.75% / -28.93% | **+2.77pp** |
+| 10 | 14.99% / -24.42% | 14.92% / -22.95% | +0.07pp |
+| 20 | 15.66% / -22.35% | 16.81% / -28.96% | -1.15pp |
+| 30 | 15.69% / -19.71% | 18.63% / -28.49% | -2.94pp |
+| 40 | 15.24% / -21.45% | 18.74% / -31.90% | **-3.50pp** |
+
+The overlay flips from worth +2.77pp to costing -3.50pp, crossing over around
+ten names. The mechanism is worse than "it stops helping". In an elevated regime
+the rule keeps `elevated_top_n`=2 momentum names and fills the rest from a
+three-ticker sleeve, so the book is capped at **five names total regardless of
+`top_n`**. A 30-name book does not get de-risked; it gets liquidated into five
+positions. It still controls drawdown (-19.71%), by a mechanism nobody would
+choose on purpose.
+
+### 2. Expressed as a WEIGHT rather than a slot count, the overlay scales
+
+`drift.defensive_weight_targets` holds the sleeve at a target share of the book
+instead of a count of slots, so three tickers can carry 30% of a 30-name book.
+
+| Variant | CAGR | Sharpe | MaxDD | Calmar | Vol | Trades/yr |
+|---|---|---|---|---|---|---|
+| **Live model (top_n=4)** | **19.52%** | 0.89 | **-19.26%** | **1.01** | 16.80% | **128** |
+| top_n=30, def wt 0% | 18.63% | 0.98 | -28.49% | 0.65 | 14.46% | 316 |
+| top_n=30, def wt 15/30% | 18.48% | 1.00 | -26.10% | 0.71 | 13.92% | 316 |
+| **top_n=30, def wt 30/60%** | 17.90% | **1.01** | -21.55% | 0.83 | **13.23%** | 316 |
+| top_n=30, def wt 50/100% | 17.05% | 0.98 | **-18.52%** | 0.92 | 12.86% | 316 |
+| top_n=40, def wt 30/60% | 17.85% | **1.01** | -20.99% | 0.85 | 13.25% | 242 |
+
+A wide book with a 30%/60% defensive weight gives up **1.6pp of CAGR** and buys
+**a materially better Sharpe (1.01 against 0.89) at 3.6pp less volatility**, with
+drawdown within 2.3pp of the live model. At 50%/100% it beats the live model's
+drawdown outright (-18.52%) for 2.5pp of CAGR. This is a real, defensible
+alternative and the first thing tested in this repo that improves risk-adjusted
+return.
+
+**Any move to a wide book requires this change.** Leaving the slot-based overlay
+in place while widening the book is the worst of the options tested.
+
+### 3. It is MORE maintenance, not less — which was the whole point
+
+**Trades per year roughly triples: 128 at `top_n`=4 against 316 at `top_n`=30.**
+More names means more of them change on each rotation. The wide book was
+motivated by reducing the work of maintaining a book through biweekly selection,
+and it does the opposite.
+
+The obvious fix — rotate less often — does not work:
+
+| Hold | CAGR | MaxDD | Sharpe | Trades/yr |
+|---|---|---|---|---|
+| **14d** | **17.90%** | **-21.55%** | **1.01** | 316 |
+| 30d | 16.38% | -28.82% | 0.86 | 194 |
+| 63d | 16.85% | -34.89% | 0.82 | 129 |
+| 126d | 16.35% | -35.68% | 0.78 | 83 |
+| 252d | 16.00% | -30.37% | 0.81 | 39 |
+
+Cutting rotation to quarterly halves the trade count and costs **13pp of
+drawdown**. There is a genuine trilemma here: few names + few trades + good
+drawdown (the current model), or many names + good Sharpe + many trades. Many
+names + few trades + good drawdown is not on the menu.
+
+**Rebalancing, separately, is a non-question.** `on_rotation`, `never`,
+`periodic:63d` and `band:25%` differ by less than 0.2pp at every hold length and
+every book size. Weight drift within a hold simply does not matter here, and the
+legacy convention's free daily rebalance is worth only **0.07pp gross**. TODO
+item 1b is answered and can be closed: the equal-weight-reset approximation is
+real but negligible.
+
+### 4. Why rotation controls drawdown when the IC is zero
+
+Rotation frequency drives drawdown hard (-21.55% at 14 days against -34.89% at
+63) even though Track F found no cross-sectional forward information at any
+horizon. Two candidate mechanisms, one tested and rejected, one supported:
+
+**Not the level floor.** Disabling `min_level_threshold` entirely (-3.0 -> -99)
+moves the result by 0.24pp at 14 days and not at all at 63. The freefall floor
+is not what is doing this.
+
+**It is the ranking, and its information decays fast.** Ranked against random
+selection, same book size, same overlay:
+
+| Selection | Hold | CAGR | MaxDD | Sharpe |
+|---|---|---|---|---|
+| ranked | 14d | 17.90% | **-21.55%** | 1.01 |
+| random | 14d | 16.51% | -24.45% | 0.88 |
+| ranked | 63d | 16.85% | **-34.89%** | 0.82 |
+| random | 63d | 18.33% | -27.35% | 0.99 |
+
+Read the two 63-day rows. **A stale ranking is worse than no ranking at all** —
+ranked selection held 63 days gives up 7.5pp of drawdown to random selection
+held the same period. Meanwhile random selection *improves* with longer holds
+(less turnover cost) exactly as expected, while ranked selection deteriorates.
+
+The composite therefore carries information that is real, short-lived, and about
+**risk rather than return**. Refreshed every 14 days it is worth ~3pp of
+drawdown and 0.13 of Sharpe against random; left for 63 days it becomes actively
+harmful, because the book is then concentrated in what *was* trending under
+conditions that have since changed.
+
+**This is a scope correction on Track F, not a contradiction of it.** The IC
+test measured cross-sectional *return* prediction and correctly found none. It
+was never capable of detecting risk information, and the model's value was
+mis-stated as "drawdown control from the overlay" when it is drawdown control
+from the overlay **and** from the rotation. That also retires the standing
+puzzle about why Tracks A-D all failed: the rotation is not buying alpha to be
+improved on, it is refreshing a risk posture that decays. Every track that tried
+to trade the signal *more cleverly* was operating on the wrong theory of what
+the signal is.
+
+### What this changes
+
+Nothing today. The live model remains the best CAGR-and-drawdown combination
+tested, and the wide-book variant is a different risk profile rather than a
+strict improvement — better Sharpe and lower volatility, worse Calmar, and three
+times the trading.
+
+The decision it sets up is a preference, not an optimization: **19.52% at 16.8%
+volatility and 128 trades a year, or 17.90% at 13.2% volatility and 316.** That
+choice should be made on capital and temperament, and revisited as the account
+grows, since concentration risk in four names scales with the balance while the
+wide book's trade count does not.
 
 ---
 
