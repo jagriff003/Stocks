@@ -4,6 +4,138 @@ Opened 2026-09-03. Each item states what to measure and what would count as an
 answer, so it can be picked up cold. Nothing here is urgent; the model is
 operating normally.
 
+Items 0, 0b, 6, 7 and 8 were added 2026-09-17 and differ in kind from the rest:
+they are not extensions of tested ideas but gaps in the research program itself.
+Items 0 and 0b are the two worth doing. Item 0 is a control that every result in
+FINDINGS currently lacks; 0b is the only axis of the strategy never varied.
+
+---
+
+## 0. What is the ranker actually worth? — the missing control
+
+**Raised 2026-09-17.** The highest-value open item in this file, and the reason
+it sits at 0 rather than 6.
+
+Every result in FINDINGS is benchmarked against SPY. SPY is the wrong control.
+It answers "did we beat the market", which is not the question the record
+actually leaves open. The universe is 52 hand-picked names — GOOGL, NVDA, META,
+LLY, TSLA — selected *today* on a momentum screen and applied backwards to 2010.
+Against that universe, a large part of 19.58% may be available without any
+ranking at all.
+
+**Nothing in the repo has ever tested the ranker against the universe it picks
+from.** Grep confirms it: no random-portfolio test, no equal-weight-universe
+benchmark, no information coefficient, no decile spread. The composite score has
+been tuned, blended, offset, gated and swept — never once shown to carry
+cross-sectional information.
+
+### What to measure
+
+**A. The null portfolio.** Draw N names at random from the same universe on the
+same 14-day clock, through the same `simulate_portfolio` with the same fills and
+slippage. Repeat across many seeds (1,000 is cheap here) and report the full
+distribution of CAGR, Sharpe and MaxDD. Then state where the live model sits in
+it as a percentile.
+
+Run four arms, because two different things are being credited to the ranker
+right now and they need separating:
+
+| Arm | Selection | Overlay | Isolates |
+|---|---|---|---|
+| 1 | ranked (live) | on | the model as it stands |
+| 2 | random | on | what the overlay alone earns |
+| 3 | ranked | off | the ranker alone |
+| 4 | random | off | the universe alone |
+
+Arm 4 is the real baseline. Arm 1 minus arm 2 is what the ranking is worth.
+
+**B. Equal-weight the whole universe**, rebalanced on the same clock. A single
+number, and the most intuitive statement of "what did picking get you".
+
+**C. The mechanism half — information coefficient.** Cross-sectional Spearman
+correlation between the composite score on day T and forward returns over the
+hold horizon, per date, across the record. Report the mean IC, its t-statistic,
+and the mean forward return by score decile. Also run it at several horizons
+(5, 10, 14, 21, 42 days) so "the signal works but not at 14 days" is
+distinguishable from "the signal does not work".
+
+### What would count as an answer
+
+A percentile for arm 1 against arm 4's distribution, and a mean IC with a
+t-stat. Thresholds configurable; suggested reading of the result:
+
+- **Above the 90th percentile, IC clearly positive** — the ranker earns its
+  keep, and every prior finding stands as written.
+- **50th to 90th, IC near zero** — the return is the universe and the overlay.
+  The ranking machinery is elaborate noise, `velocity_window=5`'s +6.22pp is a
+  selection artifact, and the research program should move to the universe.
+- **Below the 50th** — picking is actively hurting, and the cheapest available
+  improvement is to stop.
+
+### Why this is worth doing even though it might be unwelcome
+
+It is the one test that can *reduce* confidence in the model, which is exactly
+why it has not been run and exactly why it should be. It also offers a single
+coherent explanation for the standing puzzle in FINDINGS — that Tracks A, B, C
+and D all failed, from four unrelated directions. "The composite does not
+produce *timely* information" is already the recorded conclusion. This tests the
+stronger and simpler version: whether it produces information at all.
+
+Note the result is not fatal even in the bad case. A 19.58% CAGR at -19.23%
+drawdown is worth having however it arises; what changes is where the next
+decade of effort goes, and whether the ranker's parameters deserve any further
+attention.
+
+---
+
+## 0b. Position sizing — the one dimension never tested
+
+**Raised 2026-09-17.** Every experiment in the record varies *what* to hold
+(universe, ranking, offset) or *when* to hold it (hold days, exits, regime
+ladder, entry timing). Track E added *how many*. **Nothing has ever varied how
+much.** The book is equal-weighted, always, and that is a strategy choice that
+has been treated as a simulation convention.
+
+This is the most promising untested lever specifically because it does not
+contradict the unifying result. Every rejected track lost by trading more.
+Sizing rules change the weights, not the rotation dates — turnover moves
+marginally or not at all, so the 2.90pp turnover tax that killed Tracks A-D does
+not apply.
+
+It is also pointed at the constraint that actually binds. Track E showed the
+thing separating book sizes is drawdown, not CAGR, and the whole RUNBOOK ladder
+is about tolerating shortfall. Sizing is the standard lever on exactly that.
+
+### What to measure
+
+Same universe, same ranking, same clock, same fills. Vary only the weights:
+
+- **equal** (the incumbent baseline)
+- **inverse volatility** — weight by 1/σ on a trailing window (window a flag)
+- **volatility target** — scale gross exposure so the book's ex-ante vol hits a
+  target, cash or SHY taking the remainder (target and window both flags)
+- **score-proportional** — weight by composite score rank or z, so conviction
+  maps to size
+- **capped variants** of each, since an uncapped inverse-vol book in this
+  universe will concentrate hard into whatever is quietest
+
+Report CAGR, Sharpe, MaxDD, Calmar *and* turnover side by side, subperiod
+stability, and the realized share of the book in the largest position.
+
+### What would count as an answer
+
+A comparison table on the existing suite conventions, plus an explicit turnover
+column proving the variant did not smuggle in extra trading. The bar: beat the
+median configuration in all three subperiods, per the standing convention.
+
+Two cautions to carry in. First, vol-targeting is a cousin of the regime overlay
+that Track A already rejected — if it de-risks into calm-then-violent markets it
+will forfeit the overnight premium the same way, and the honest prior is that
+the *de-risking* variants lose and the *re-weighting* variants are the live
+possibility. Second, `_segment_return` resets to equal weight daily, so this
+work requires a weight-aware simulation path; see item 1b, which needs the same
+machinery. Build it once for both.
+
 ---
 
 ## 1. Defensive posture — is it held too long, and what does it cost?
@@ -137,3 +269,98 @@ main way to lose money with this model.
 
 Before adding any new signal, it must clear the same bar this one was held to:
 what does it fire on historically, how often, and what happened next?
+
+---
+
+## 6. Bound the survivorship bias now, instead of waiting years
+
+**Raised 2026-09-17.** Item 3 parks the survivorship problem until enough
+point-in-time snapshots accumulate. At one snapshot per rotation from
+2026-07-25, a usable record is most of a decade away, and in the meantime every
+absolute number in FINDINGS carries an unknown and unstated inflation.
+
+It does not have to stay unknown. The bias can be *bounded* now, with data
+already in hand, by running the existing model against universes chosen without
+hindsight:
+
+- **A frozen 2010 universe.** Take a plausible 2010-vintage list — S&P 100
+  constituents as of 2010-01-01, or the sector-balanced 50 largest US names by
+  market cap then — and run the unchanged model on it from 2010. Everything that
+  subsequently died or stagnated stays in, which is the point.
+- **A rolling-vintage universe.** Re-screen every N years on the rules in
+  `screen_universe.py` using only data available at that date, and splice the
+  segments. Closer to real practice; more work, and the screen's own rules are
+  partly hindsight.
+- **Delisted-name recovery.** Establish whether the price source returns data
+  for names that no longer trade. If it does not, that is itself a finding, and
+  it caps what any of the above can achieve.
+
+### What would count as an answer
+
+A single number: the CAGR gap between the live universe and the frozen-2010
+universe over the same window. That number is the survivorship premium, and once
+it exists it can be subtracted — from the headline, from the health monitor's
+scale (item 3), and from the outsized-event analysis, whose tail estimate is
+biased in the reassuring direction for the same reason.
+
+Even a rough figure is a large improvement on the current position, which is
+that the bias is acknowledged in prose and quantified nowhere.
+
+---
+
+## 7. Account for how many hypotheses have been tested
+
+**Raised 2026-09-17.** FINDINGS records five tracks, roughly a dozen suites and
+well over a hundred configurations, all evaluated on one 14-year price history.
+The reported 0.90 Sharpe is the maximum over that search, not a draw from it,
+and no correction anywhere in the repo reflects that.
+
+The walk-forward result is the closest thing and it answers a different
+question — it shows that *re-tuning on a schedule* is harmful, not how much of
+the selected configuration's edge is selection.
+
+### What to measure
+
+- Count the configurations actually evaluated, by suite. FINDINGS and the
+  exported comparison CSVs already hold this; it needs tallying, not new runs.
+- Compute a deflated Sharpe ratio, or the equivalent multiple-testing haircut,
+  using that count and the correlation among the tested variants (they are far
+  from independent, which cuts the effective count well below the raw one).
+- Report the haircut next to the headline in FINDINGS, permanently.
+
+### What would count as an answer
+
+A deflated Sharpe and the number of effective independent trials behind it. If
+the deflated figure stays comfortably positive, that is real reassurance and it
+is currently unclaimed. If it does not, it belongs next to the headline anyway.
+
+This pairs naturally with item 0: the null-portfolio distribution is an
+empirical version of the same correction, and if both are built the two should
+agree. Disagreement between them would itself be informative.
+
+---
+
+## 8. Factor attribution — is this momentum, or low-beta, or something of its own?
+
+**Raised 2026-09-17.** Lower priority than 0, 0b, 6 and 7, and recorded mainly
+so it is not mistaken for unexplored ground later.
+
+`health.py` establishes the model runs at roughly half of SPY's beta with 0.42
+correlation, which is a useful fact and not an attribution. What is unknown is
+how much of the return survives controlling for published factor returns —
+market, size, value, momentum, quality, low-volatility. A strategy that is
+cross-sectional momentum plus a defensive overlay should load heavily on
+momentum and low-beta, and the interesting quantity is the alpha left over.
+
+Requires external data the repo does not have (the Ken French library, or an
+equivalent), which is the reason for the lower ranking rather than any doubt
+about its usefulness.
+
+### What would count as an answer
+
+A regression of monthly model returns on the factor set, with loadings,
+t-statistics and the residual alpha. If alpha is indistinguishable from zero and
+the loadings are all on momentum and low-beta, the model is a well-executed
+factor portfolio — which is worth knowing plainly, and is a perfectly good thing
+to own, but it would reframe the universe work in item 0 as the only place
+genuine edge could come from.
