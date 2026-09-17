@@ -37,6 +37,7 @@ metrics and is subperiod-consistent.
 | Track E — book size `top_n` 1..8 | **confirmed 4** | -1.1 to -7.5pp for any other size |
 | Track F — null benchmark / ranker IC | **measured** | ranking worth +0.84pp gross; universe carries the rest |
 | Track G — wide book + weight overlay | **viable alternative** | -1.6pp CAGR, +0.12 Sharpe, -3.6pp vol, 2.5x trades |
+| Track G's risk claim | **retracted** | no decay trend; drawdown gap not resolvable on one history |
 | Model health monitor | **built** | diagnostic, not a return change |
 
 Live model: **19.84% CAGR, 0.91 Sharpe, -19.23% max drawdown, Calmar 1.03**,
@@ -770,6 +771,88 @@ declares - which day the clock starts on.** Any result quoted from a single
 phase is one draw from a distribution whose spread here is several points of
 CAGR. Sweeps of anything that shifts the schedule must be phase-averaged or they
 report alignment luck.
+
+---
+
+## Correction: the "ranking buys drawdown" claim is not established
+
+**Written 2026-09-17**, correcting Track G's headline on the same day it was
+recorded. The phase-averaged decay test does not reproduce it.
+
+Track G reported that ranked selection beats random by ~3pp of drawdown at a
+14-day hold and loses to it by 7.5pp at 63 days, and concluded that the
+composite carries short-lived RISK information. Re-run at the live book size
+with every arm averaged over 10 rotation phases and 60 random draws per hold:
+
+| Hold | dCAGR | dMaxDD | dVol |
+|---|---|---|---|
+| 7 | +3.04% | +6.82% | -0.09% |
+| 10 | +1.65% | +7.69% | -0.26% |
+| 14 | +4.10% | +5.97% | +0.00% |
+| 18 | -0.53% | **-7.85%** | -0.07% |
+| 21 | +0.98% | +1.70% | -0.18% |
+| 28 | -0.20% | +1.14% | +0.41% |
+| 42 | +4.36% | +3.07% | +0.61% |
+| 63 | -0.79% | **+4.89%** | -0.21% |
+| **mean** | **+1.58%** | **+2.93%** | **+0.03%** |
+| t | 2.16 | 1.67 | 0.25 |
+
+### What survives
+
+**The ranking is worth roughly +1.6pp of CAGR** across hold lengths, t = 2.16.
+Marginal, and consistent with Track F's +0.84pp gross once the persistence
+advantage in trading costs is added back.
+
+### What does not
+
+**There is no decay trend.** Spearman correlation of the gap with hold length is
+-0.36 for CAGR and -0.52 for drawdown, on eight points. Significance would need
+|rho| > 0.71. The curve bounces - +4.10, -0.53, +0.98, -0.20, +4.36 - with no
+shape.
+
+**The drawdown claim does not hold up**, t = 1.67 across holds. And the 63-day
+sign *flips*: Track G measured ranked selection losing 7.5pp of drawdown to
+random at a 63-day hold; phase-averaged at the live book size it gains 4.89pp.
+"A stale ranking is worse than no ranking" was one noisy point and should not be
+repeated.
+
+**Volatility shows nothing at all**: dVol = +0.03%, t = 0.25. The ranking does
+not make the return stream less volatile by any measurable amount.
+
+### Why the per-hold t-statistics lie, and the lesson under it
+
+The within-hold standard errors look decisive - t of 6.73, 7.37, -8.73, 8.03.
+They are wrong, and the proof is in the table itself: if those SEs described the
+real uncertainty the curve would be smooth, and it is not. The variation ACROSS
+hold lengths (sd 2.06pp for CAGR, 4.95pp for drawdown) dwarfs the within-hold SE.
+
+The reason is that **10 rotation phases are not 10 independent samples.** They
+are ten nearly-identical schedules over *the same fourteen years of market
+history*, sharing every episode that matters. Averaging them removes alignment
+luck, which is what it was built for, and does almost nothing against the
+dominant source of variation: there is only one realization of history.
+
+That compounds with a second problem. **Max drawdown is a single-episode
+statistic** - one number set by one stretch of one history - so comparing max
+drawdowns across arms has almost no statistical power by construction. That
+dVol is flat while dMaxDD is large and unstable is the signature: the drawdown
+difference is plausibly about *which* episode happened to be worst, not about a
+persistent property.
+
+**The general constraint, which bounds this whole research program:** with one
+14-year history, effects smaller than a few points of CAGR are not resolvable,
+and anything resting on max drawdown is barely estimable at all. Future risk
+comparisons should use measures that aggregate over many episodes - downside
+deviation, Ulcer index, the mean of the worst k drawdowns, the 5th percentile of
+rolling 6-month returns - rather than the single worst point.
+
+### What still stands from Track G
+
+Sweeps 1 and 2 held the schedule fixed across arms and are unaffected: the
+slot-based overlay does invert on a wide book, and the weight-based overlay does
+scale. Those compare configurations on identical phases and identical history.
+The rebalancing-policy result also stands, for the same reason. It is sweep 3
+and the ranked-versus-random risk interpretation that this corrects.
 
 ---
 
