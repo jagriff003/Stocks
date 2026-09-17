@@ -35,11 +35,18 @@ metrics and is subperiod-consistent.
 | Track C — acceleration, earlier entry | **rejected** | -0.8 to -9.3pp |
 | Track D — rank offset (skip top 1-5) | **rejected** | -2.0 to -9.8pp |
 | Track E — book size `top_n` 1..8 | **confirmed 4** | -1.1 to -7.5pp for any other size |
+| Track F — null benchmark / ranker IC | **measured** | ranking worth +0.84pp gross; universe carries the rest |
 | Model health monitor | **built** | diagnostic, not a return change |
 
 Live model: **19.84% CAGR, 0.91 Sharpe, -19.23% max drawdown, Calmar 1.03**,
 net of realistic fills and costs. The honest like-for-like starting point was
 12.80%.
+
+**Read that next to Track F.** Owning the same universe equal-weighted, trading
+almost never, earns 19.99% at a 0.92 Sharpe — the model's return advantage over
+its own universe is negative. What the model delivers is drawdown: -19.23%
+against -35.22%, Calmar 1.02 against 0.57. It is a risk-management overlay on a
+universe, not a stock picker, and it should be understood and defended as one.
 
 ---
 
@@ -403,6 +410,162 @@ trim curve prices at 0.47pp of lifetime CAGR.
 **The standing caveat applies and cuts against comfort.** These are today's
 screened tickers applied backwards; survivorship bias means the real historical
 tail was worse than this, in both directions.
+
+---
+
+## Track F — the missing control: what is the ranker actually worth?
+
+**Run 2026-09-17.** `scripts/analyze_null_benchmark.py` (500 trials per random
+arm) and `scripts/analyze_ranker_ic.py`. The first benchmark in this repo's
+history against anything other than SPY.
+
+The finding, stated plainly: **the stock picking contributes approximately
+nothing to return. What the model does is manage drawdown on a universe that is
+carrying all of the return.**
+
+### The reference rows
+
+| | CAGR | Sharpe | MaxDD | Calmar | Vol | Trades/yr |
+|---|---|---|---|---|---|---|
+| SPY buy and hold | 13.81% | 0.54 | -33.72% | 0.41 | 17.10% | 0 |
+| **Equal-weight universe** | **19.99%** | **0.92** | -35.22% | 0.57 | 16.79% | 3.2 |
+| **The live model** | 19.58% | 0.90 | **-19.23%** | **1.02** | 16.82% | 127.8 |
+
+Owning all 49 momentum names equal-weighted, rebalanced never, earns **more**
+than the model (19.99% vs 19.58%) at a marginally better Sharpe (0.92 vs 0.90)
+and near-identical volatility (16.79% vs 16.82%).
+
+What the model buys is the drawdown: **-19.23% against -35.22%**, which nearly
+doubles Calmar (1.02 vs 0.57). Note the shape of that — the two have the *same*
+dispersion and very different peak-to-trough. The model is not a lower-risk
+portfolio in the variance sense; it specifically avoids the deep holes.
+
+The SPY bar is cleared by 5.77pp and the reason to run this rather than index
+stands. But essentially all of that margin is **universe selection**, not
+ranking.
+
+### The four arms
+
+| Arm | CAGR | Gross | Sharpe | MaxDD | Turnover |
+|---|---|---|---|---|---|
+| ranked_overlay (live) | 19.58% | 22.53% | 0.90 | -19.23% | 1630% |
+| random_overlay | 13.40% ±3.34 | 17.48% | 0.52 | -30.69% | 2359% |
+| ranked_plain | 16.73% | 19.50% | 0.67 | -29.02% | 1562% |
+| random_plain | 14.46% ±3.67 | 18.66% | 0.52 | -37.78% | 2403% |
+
+Where the live model sits in the null distribution:
+
+| Comparison | CAGR | **Gross CAGR** | Sharpe |
+|---|---|---|---|
+| ranked_overlay vs random_overlay | 96.0th | 91.8th | 96.8th |
+| ranked_plain vs random_plain | 74.2nd | **60.8th** | 80.0th |
+
+**Read the gross column of the second row.** Stripped of the overlay and of the
+slippage advantage that comes from persistence, the ranker sits at the **61st
+percentile of random draws from its own universe**. That is noise. It is exactly
+what the IC predicts.
+
+### What each component is worth
+
+| Component | net | gross |
+|---|---|---|
+| Ranking, overlay on | +6.18% | +5.06% |
+| **Ranking, overlay off** | +2.27% | **+0.84%** |
+| Overlay, on ranked picks | +2.84% | **+3.03%** |
+| **Overlay, on random picks** | -1.07% | **-1.18%** |
+
+Two things to take from this table.
+
+**The ranking is worth +0.84pp gross on its own.** The net figure of +2.27pp is
+real money but most of it is not skill — an iid draw has no persistence and
+rotates ~100% every cycle (2403% turnover against 1562%), so the random arm is
+being taxed for being random. Gross removes that and little survives.
+
+**The overlay helps ranked picks and HURTS random ones** (+3.03pp against
+-1.18pp gross). That interaction is the most informative number in the study,
+and it has a mechanism. In an elevated regime the overlay cuts the book to 2
+momentum names plus defensive fill. The top-K analysis shows the ranker's edge
+is concentrated at exactly K=1-2 and gone by K=8 (+0.16% / +0.07% / +0.05% per
+14-day period at K=1 / 2 / 4). So the overlay works by *forcing concentration
+into the only part of the ranking that carries information*. Applied to random
+picks the same rule just concentrates noise and forfeits the overnight premium,
+and it loses. Neither piece is worth much alone; the combination is at the 96th
+percentile.
+
+### The information coefficient: zero at every horizon
+
+Cross-sectional Spearman(score, forward return) on the eligible pool only,
+open-to-open to match the fill, with a t-statistic computed on non-overlapping
+dates:
+
+| Horizon | Mean IC | t | t (naive) |
+|---|---|---|---|
+| 5d | 0.0002 | 0.17 | 0.06 |
+| **14d (live)** | 0.0026 | 0.36 | 0.77 |
+| 21d | -0.0009 | -0.21 | -0.26 |
+| 42d | -0.0057 | -0.53 | -1.72 |
+| 63d | -0.0137 | -0.53 | **-4.11** |
+| 126d | 0.0018 | -0.75 | 0.54 |
+
+No horizon clears |t| = 2. The quintile ladder is flat, and at most horizons the
+*worst* bin has the highest mean forward return. The level-only score scores the
+same as the velocity-blended one, which is worth holding against
+`velocity_window=5`'s reported +6.22pp — that gain is not showing up as
+prediction.
+
+Note the 63-day row: the naive t is -4.11 and the honest one is -0.53. Without
+the overlap correction this table would report a significant negative IC that
+does not exist. Same trap as the health monitor's 126-day windows.
+
+**The subperiod IC decline is not real.** P1 +0.0175, P2 +0.0018, P3 -0.0057
+looks like decay; the difference is t = 0.77, p = 0.44. More to the point, the
+smallest decline this test could detect at 80% power is **0.084**, roughly
+eighteen times the full-record mean IC of 0.0045. The test cannot detect a
+decline of any plausible size, so "stable" is as unsupported as "declining". The
+only defensible statement is that the IC is indistinguishable from zero
+throughout — and you cannot decay from zero. Recorded because the apparent trend
+will otherwise get re-discovered and mistaken for degradation.
+
+### Why the ranker looks dead on IC but the top-K cut shows an edge
+
+They are consistent. A quintile is the top 20% of ~41 eligible names, about
+eight; the model buys four. The edge lives at ranks 1-2 and is averaged away by
+the time you pool eight names, and completely invisible in a full cross-sectional
+Spearman dominated by the middle of the distribution.
+
+Hit rate at the live hold is **lower** for the picks than for the pool (57.5%
+against 57.9%) at every K. The picks win less often and earn more when they win.
+Whatever edge exists is skew, not accuracy.
+
+**This explains Track E.** The ranker's edge is concentrated at rank 1 and is
+roughly +0.16% per 14-day period there. Harvesting it undiluted is what
+`top_n=1` does, and `top_n=1` returns 12.12% at -60.92% drawdown: the edge is far
+too small to survive the volatility of concentrating into it. `top_n=4` is the
+point where enough top-rank signal survives to matter while the book still
+compounds. Two results that looked unrelated are one fact.
+
+### What this changes
+
+**Nothing about the live model today.** 19.58% at -19.23% is worth having
+however it arises, and the drawdown advantage over owning the universe outright
+is large, real, and exactly what the RUNBOOK is written to protect.
+
+What it changes is where effort goes:
+
+1. **The ranker's parameters deserve no further attention.** Two independent
+   measurements say it carries no cross-sectional information. Tuning it further
+   is fitting noise, which the walk-forward result already warned about from a
+   different direction.
+2. **The overlay deserves more credit than FINDINGS gives it.** It is recorded
+   above mostly through Track A's *rejection* of a graduated version. On this
+   evidence the binary overlay is the single largest deliberate contributor:
+   +3.03pp gross and the entire drawdown advantage.
+3. **Survivorship moves from footnote to central question.** The universe is now
+   known to carry the return, and the universe figure is the one most
+   contaminated by applying today's screen backwards. "Own the universe" earning
+   19.99% is partly a statement about 2010-2026 and partly an artifact of
+   choosing the names in 2026. Until that is bounded (TODO item 6) the honest
+   headline is unknown. This is now the most valuable open item in the repo.
 
 ---
 
