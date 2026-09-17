@@ -6,15 +6,35 @@ operating normally.
 
 Items 0, 0b, 6, 7 and 8 were added 2026-09-17 and differ in kind from the rest:
 they are not extensions of tested ideas but gaps in the research program itself.
-Items 0 and 0b are the two worth doing. Item 0 is a control that every result in
-FINDINGS currently lacks; 0b is the only axis of the strategy never varied.
+Item 0 was run the same day and is answered — see FINDINGS Track F. Its result
+promotes **item 6 to the top of this list**: the ranker turns out not to produce
+the return, the universe does, and the universe number is the one survivorship
+bias contaminates most.
 
 ---
 
-## 0. What is the ranker actually worth? — the missing control
+## 0. What is the ranker actually worth? — ANSWERED 2026-09-17
 
-**Raised 2026-09-17.** The highest-value open item in this file, and the reason
-it sits at 0 rather than 6.
+**Raised and answered 2026-09-17.** Kept in full below, because the design is
+reusable and because what it asked for is the reason the answer is trustworthy.
+
+**The answer: the ranking is worth +0.84pp gross and sits at the 61st percentile
+of random draws from its own universe. The IC is indistinguishable from zero at
+every horizon from 5 to 126 days. Equal-weighting the whole universe and never
+trading earns 19.99% against the model's 19.58%.** The model's contribution is
+drawdown (-19.23% against -35.22%), not return. Full write-up in FINDINGS,
+Track F.
+
+Two follow-ons, neither of them a model change:
+
+- The ranker's parameters are closed to further tuning. Two independent
+  measurements say there is no information there to optimize.
+- **Item 6 (bound the survivorship bias) is now the most valuable open item in
+  this file** and should be read as item 0's successor. The universe is what
+  carries the return, and the universe figure is the one most contaminated by
+  applying today's screen backwards.
+
+What follows is the original specification.
 
 Every result in FINDINGS is benchmarked against SPY. SPY is the wrong control.
 It answers "did we beat the market", which is not the question the record
@@ -273,6 +293,17 @@ what does it fire on historically, how often, and what happened next?
 ---
 
 ## 6. Bound the survivorship bias now, instead of waiting years
+
+**THE TOP OPEN ITEM, promoted 2026-09-17 by the Track F result.** It sits at 6
+only because renumbering the file would break every reference to it.
+
+Track F established that the universe, not the ranker, produces the return:
+equal-weighting all 49 momentum names and never trading earns 19.99%. That
+number is also the single most survivorship-contaminated figure in the repo,
+because it is exactly "what did the names I picked in 2026 do since 2010" with
+no selection skill in between to muddy it. Every headline in FINDINGS rests on
+it. Until it is bounded, the honest statement about this strategy's absolute
+return is that it is unknown.
 
 **Raised 2026-09-17.** Item 3 parks the survivorship problem until enough
 point-in-time snapshots accumulate. At one snapshot per rotation from
