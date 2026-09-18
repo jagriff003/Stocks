@@ -79,26 +79,35 @@ def correlation_matrices(close: pd.DataFrame,
     return out
 
 
-def summarize_correlations(matrix: pd.DataFrame, period: int, top: int = 10) -> str:
-    """Human-readable summary of one correlation matrix."""
+def summarize_correlations(matrix: pd.DataFrame, period: int,
+                           threshold: float = 0.70) -> str:
+    """
+    The pairs that are actually one bet, and nothing else.
+
+    Only |rho| >= `threshold` is listed.  The previous version printed the ten
+    highest and ten lowest pairs plus four summary statistics for each of three
+    windows — around seventy lines per run, of which the actionable content was
+    the handful of pairs above the redundancy threshold.  The rest invited
+    reading meaning into the ordering of pairs that differ by 0.01.
+
+    Negative pairs are included at the same absolute threshold: two names moving
+    strongly opposite are also not two independent bets.
+    """
     mask = np.triu(np.ones_like(matrix, dtype=bool), k=1)
-    pairs = matrix.where(mask).stack()
+    pairs = matrix.where(mask).stack().dropna()
+    flagged = pairs[pairs.abs() >= threshold].sort_values(
+        key=lambda s: s.abs(), ascending=False)
 
-    lines = [
-        f"\n=== {period}-DAY CORRELATION MATRIX SUMMARY ===",
-        f"Period: Last {period} trading sessions",
-        f"Mean:   {pairs.mean():.3f}   Median: {pairs.median():.3f}",
-        f"Min:    {pairs.min():.3f}   Max:    {pairs.max():.3f}   "
-        f"Std: {pairs.std():.3f}",
-        f"\nTop {top} highest correlations:",
-    ]
-    for (a, b), val in pairs.sort_values(ascending=False).head(top).items():
-        lines.append(f"  {a} - {b}: {val:.3f}")
+    n = len(pairs)
+    head = (f"{period}d correlations: {n:,} pairs, "
+            f"mean {pairs.mean():.2f}, max {pairs.max():.2f}")
+    if flagged.empty:
+        return head + f"\n  none at |rho| >= {threshold:.2f} — no redundant pairs"
 
-    lines.append(f"\nTop {top} lowest correlations:")
-    for (a, b), val in pairs.sort_values().head(top).items():
-        lines.append(f"  {a} - {b}: {val:.3f}")
-
+    lines = [head, f"  {len(flagged)} pair(s) at |rho| >= {threshold:.2f} "
+                   f"— each is effectively one bet, not two:"]
+    for (a, b), val in flagged.items():
+        lines.append(f"    {a:<6} {b:<6} {val:>6.2f}")
     return "\n".join(lines)
 
 

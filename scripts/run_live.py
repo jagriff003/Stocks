@@ -210,6 +210,14 @@ def main() -> int:
     parser.add_argument("--drop-unsettled", action="store_true",
                         help="exclude today's session when the market has not "
                              "closed yet, instead of warning about it")
+    parser.add_argument("--chart-days", type=int, default=252,
+                        help="sessions shown in the held-book chart")
+    parser.add_argument("--show-rebalances", type=int, default=20,
+                        help="how many recent rebalances to print (0 = none)")
+    parser.add_argument("--corr-window", type=int, default=50,
+                        help="which correlation window to display")
+    parser.add_argument("--corr-threshold", type=float, default=0.70,
+                        help="only show pairs at or above this |correlation|")
     parser.add_argument("--as-of", default=None,
                         help="date for the CURRENT SET, e.g. 2026-09-02; "
                              "defaults to the latest available session")
@@ -260,24 +268,64 @@ def main() -> int:
 
     # --- backtest / signal ---
     print("\n=== RUNNING STRATEGY ===")
-    result = run_strategy(prices, config, verbose=True)
+    result = run_strategy(prices, config, verbose=False)
+    hist = result.rebalance_history
+    tail = hist[-args.show_rebalances:] if args.show_rebalances else []
+    print(f"  {len(hist)} rebalances since {hist[0]['Date']:%Y-%m-%d}; "
+          f"showing last {len(tail)}:")
+    for rec in tail:
+        print(f"    {rec['Date']:%Y-%m-%d} [{rec['Regime']:<8}] "
+              f"{', '.join(rec['Selected_Stocks'])}")
 
     m, t = result.metrics, result.turnover
     print("\n=== STRATEGY RESULTS ===")
-    print(f"  Total Return   {m['total_return']:>10.2%}")
-    print(f"  CAGR           {m['cagr']:>10.2%}")
-    print(f"  Volatility     {m['volatility']:>10.2%}")
-    print(f"  Sharpe Ratio   {m['sharpe_ratio']:>10.2f}")
-    print(f"  Sortino Ratio  {m['sortino_ratio']:>10.2f}")
-    print(f"  Max Drawdown   {m['max_drawdown']:>10.2%}")
-    print(f"  Calmar Ratio   {m['calmar_ratio']:>10.2f}")
-    print(f"  Trading Days   {m['num_periods']:>10,}")
-    print("\n  --- turnover ---")
-    print(f"  Trades / year  {t['trades_per_year']:>10.1f}")
-    print(f"  Avg hold       {t['avg_hold_days']:>10.1f} days")
-    print(f"  Median hold    {t['median_hold_days']:>10.1f} days")
-    print(f"  Annual turnover{t['annual_turnover']:>10.1%}")
-    print(f"  Slippage paid  {result.total_cost:>10.2%} cumulative")
+    print("  (backtest on today's universe; see the caveats note at the end)")
+
+    # Each metric carries its direction and what it is FOR.  A column of numbers
+    # with no interpretation is where over-reading starts: Calmar 1.19 means
+    # nothing to a reader who has to remember whether high is good and what it
+    # trades off against.
+    rows = [
+        ("Total Return", f"{m['total_return']:>10.2%}", "higher",
+         "growth of $1 over the whole record; scales with length, not skill"),
+        ("CAGR", f"{m['cagr']:>10.2%}", "higher",
+         "annualized return. Inflated here by survivorship and a top-decile "
+         "window — read deltas, not the level"),
+        ("Volatility", f"{m['volatility']:>10.2%}", "lower",
+         "annualized dispersion. ~17% is equity-like; below that is the "
+         "defensive sleeve working"),
+        ("Sharpe Ratio", f"{m['sharpe_ratio']:>10.2f}", "higher",
+         "return per unit of total risk. >1.0 is good for a long-only "
+         "equity book"),
+        ("Sortino Ratio", f"{m['sortino_ratio']:>10.2f}", "higher",
+         "same, counting only downside moves. Above Sharpe means the "
+         "volatility is mostly upside"),
+        ("Max Drawdown", f"{m['max_drawdown']:>10.2%}", "smaller loss",
+         "worst peak-to-trough. THE number this model exists to control — "
+         "but one episode, so weakly estimated"),
+        ("Calmar Ratio", f"{m['calmar_ratio']:>10.2f}", "higher",
+         "CAGR per unit of max drawdown. >1.0 means a year of return "
+         "exceeds the worst hole"),
+        ("Trading Days", f"{m['num_periods']:>10,}", "n/a",
+         "sample size. ~3,700 days is only ~265 independent 14-day holds"),
+    ]
+    for name, val, direction, why in rows:
+        arrow = {"higher": "^ higher better", "lower": "v lower better",
+                 "smaller loss": "v smaller loss better"}.get(direction, "")
+        print(f"  {name:<14}{val}   {arrow}")
+        print(f"  {'':<14}{'':>10}   {why}")
+
+    print("\n  --- turnover: what it cost to get the above ---")
+    print(f"  Trades / year  {t['trades_per_year']:>10.1f}   v lower better — "
+          f"each is a real order and real slippage")
+    print(f"  Avg hold       {t['avg_hold_days']:>10.1f} days  context for the "
+          f"{config.hold_days}-day rotation clock")
+    print(f"  Median hold    {t['median_hold_days']:>10.1f} days  well below avg "
+          f"means a few names are held much longer")
+    print(f"  Annual turnover{t['annual_turnover']:>10.1%}   v lower better — "
+          f"fraction of the book replaced per year")
+    print(f"  Slippage paid  {result.total_cost:>10.2%}   cumulative drag "
+          f"already deducted from CAGR above")
 
     # --- exports ---
     print("\n=== EXPORTING RESULTS ===")
@@ -298,19 +346,33 @@ def main() -> int:
     perf_by_stock = individual_stock_performance(prices.close)
     perf_by_stock.to_csv(out / "rsi_ma_individual_stock_performance.csv", index=False)
 
-    for name in ("rsi_ma_portfolio_performance.csv", "rsi_ma_composite_scores.csv",
-                 "rsi_ma_composite_scores_level_only.csv",
-                 "rsi_ma_rebalance_history.csv",
-                 "rsi_ma_individual_stock_performance.csv"):
-        print(f"- {name}")
+    # One line when everything worked; the full list only when it did not.
+    # A run that exports the same five files every time does not need five
+    # lines to say so — but a missing one must be impossible to overlook.
+    expected = ("rsi_ma_portfolio_performance.csv", "rsi_ma_composite_scores.csv",
+                "rsi_ma_composite_scores_level_only.csv",
+                "rsi_ma_rebalance_history.csv",
+                "rsi_ma_individual_stock_performance.csv")
+    missing = [n for n in expected if not (out / n).exists()]
+    if missing:
+        print(f"  *** {len(missing)} of {len(expected)} EXPORTS FAILED ***")
+        for n in expected:
+            print(f"    {'MISSING' if n in missing else 'ok     '}  {n}")
+    else:
+        print(f"  {len(expected)} files exported OK -> {out}")
 
     # --- correlations ---
-    print("\n=== CORRELATION MATRICES ===")
-    for period, matrix in correlation_matrices(prices.close).items():
-        path = out / f"rsi_ma_correlation_{period}d.csv"
-        matrix.to_csv(path)
-        print(summarize_correlations(matrix, period))
-        print(f"Exported to: {path.name}")
+    print("\n=== CORRELATION ===")
+    mats = correlation_matrices(prices.close)
+    for period, matrix in mats.items():          # every window still exported
+        matrix.to_csv(out / f"rsi_ma_correlation_{period}d.csv")
+    if args.corr_window in mats:
+        print(summarize_correlations(mats[args.corr_window], args.corr_window,
+                                     threshold=args.corr_threshold))
+    else:
+        print(f"  (no {args.corr_window}d matrix; have "
+              f"{sorted(mats)})")
+    print(f"  all {len(mats)} windows exported to CSV")
 
     # --- health monitor ---
     #
@@ -364,6 +426,44 @@ def main() -> int:
             axes[1].grid(alpha=0.3)
 
             plt.tight_layout()
+
+            # --- held names, restored ---
+            #
+            # The pre-refactor script drew this (plot_momentum_portolio, legacy
+            # line 663) and the refactor dropped it.  It was never reported as
+            # broken because a chart that is simply absent produces no error.
+            #
+            # Rebased to 100 at the window start rather than drawn on raw
+            # price: the legacy version plotted absolute prices on one axis, so
+            # a $600 name and a $40 name shared a scale and only the expensive
+            # one was legible.  Rebasing is what makes the lines comparable,
+            # which is the whole point of putting them together.
+            held = list(result.holdings.iloc[-1]) if len(result.holdings) else []
+            if held:
+                lookback = min(args.chart_days, len(prices.close))
+                sub = prices.close[held].iloc[-lookback:].dropna(axis=1, how="all")
+                if not sub.empty:
+                    fig2, ax = plt.subplots(figsize=(13, 6))
+                    for sym in sub.columns:
+                        s = sub[sym].dropna()
+                        if s.empty:
+                            continue
+                        ax.plot(s.index, s / s.iloc[0] * 100.0, linewidth=1.5,
+                                label=f"{sym}  {s.iloc[-1] / s.iloc[0] - 1:+.1%}")
+                    spy_w = prices.spy.reindex(sub.index).ffill().dropna()
+                    if not spy_w.empty:
+                        ax.plot(spy_w.index, spy_w / spy_w.iloc[0] * 100.0,
+                                linewidth=2.0, linestyle="--", color="black",
+                                alpha=0.55,
+                                label=f"SPY  {spy_w.iloc[-1] / spy_w.iloc[0] - 1:+.1%}")
+                    ax.axhline(100, color="grey", linewidth=0.8, alpha=0.5)
+                    ax.set_title(f"Held book over the last {lookback} sessions "
+                                 f"— rebased to 100, SPY dashed")
+                    ax.set_ylabel("Rebased (100 = start)")
+                    ax.grid(alpha=0.3)
+                    ax.legend(loc="best", fontsize=9)
+                    fig2.tight_layout()
+
             plt.show()
         except Exception as exc:      # a headless box should not fail the run
             print(f"\n(Charts skipped: {exc})")
