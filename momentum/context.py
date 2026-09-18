@@ -51,6 +51,15 @@ class ContextSignal:
     rising_means: str
     falling_means: str
     why_it_matters: str
+    risk_on: Optional[str] = "above"
+    green_means: str = ""
+
+    @property
+    def colour_note(self) -> str:
+        """What the shading means for THIS signal, spelled out."""
+        if self.risk_on is None:
+            return "grey = above trend (direction is ambiguous for equities)"
+        return f"green = {self.green_means}"
 
 
 SIGNALS: Dict[str, ContextSignal] = {
@@ -59,33 +68,46 @@ SIGNALS: Dict[str, ContextSignal] = {
         "the average stock is keeping up - broad participation",
         "a handful of mega-caps are carrying the index - narrow leadership",
         "a 4-name book lives or dies on whether leadership is broad enough "
-        "to have picked from"),
+        "to have picked from",
+        risk_on="above",
+        green_means="broad participation - more names to pick from"),
     "HYG_LQD": ContextSignal(
         "HYG_LQD", "Credit appetite: high-yield vs investment-grade",
         "investors are paid to take credit risk and are taking it",
         "credit is being repriced - stress that equities often lag",
-        "duration cancels out, so this is risk appetite rather than rates"),
+        "duration cancels out, so this is risk appetite rather than rates",
+        risk_on="above",
+        green_means="credit is calm - stress usually shows here before equities"),
     "IWM_SPY": ContextSignal(
         "IWM_SPY", "Risk appetite: small-cap vs large-cap",
         "money is moving down the size curve - risk-seeking",
         "money is hiding in size - defensive rotation",
         "the universe is mid/large cap, so this says whether that tilt is "
-        "where the market wants to be"),
+        "where the market wants to be",
+        risk_on="above",
+        green_means="risk-seeking - money moving down the size curve"),
     "AD_LINE": ContextSignal(
-        "AD_LINE", "Advance/decline line over the liquid pool",
-        "more names advancing than declining - participation is real",
+        "AD_LINE", "Breadth: share of the pool advancing (20d avg)",
+        "more than half the pool is advancing - participation is real",
         "the index is being held up by fewer names than it appears",
-        "computed from the pool, not bought: Yahoo serves no breadth index"),
+        "computed from the pool, not bought: Yahoo serves no breadth index",
+        risk_on="above",
+        green_means="more than half the pool advancing - a real rally, not a few names"),
     "UUP": ContextSignal(
         "UUP", "US dollar index",
         "a headwind for multinational earnings and for commodities",
         "a tailwind for multinationals, commodities and emerging markets",
-        "the universe is 48 US equities and cannot see the dollar at all"),
+        "the universe is 48 US equities and cannot see the dollar at all",
+        risk_on="below",
+        green_means="a WEAK dollar - note the inversion: dollar strength is the "
+                    "headwind, so green here is the LOWER line"),
     "DBC": ContextSignal(
         "DBC", "Broad commodities",
         "inflationary pressure and real-asset strength",
         "disinflation, or demand weakness",
-        "held in the model once and dropped: too volatile on a two-week hold"),
+        "held in the model once and dropped: too volatile on a two-week hold",
+        risk_on=None,
+        green_means=""),
     "SH": ContextSignal(
         "SH", "Short S&P 500 (monitor only, never held)",
         "the counter-trade is ranking well - breadth is deteriorating",
