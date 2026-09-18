@@ -301,8 +301,20 @@ what does it fire on historically, how often, and what happened next?
 
 ## 6. Bound the survivorship bias now, instead of waiting years
 
-**THE TOP OPEN ITEM, promoted 2026-09-17 by the Track F result.** It sits at 6
-only because renumbering the file would break every reference to it.
+**THE DECISIVE EXPERIMENT FOR THE WHOLE PROGRAM**, promoted 2026-09-17 by
+Track F and made decisive the same day by Track H. It sits at 6 only because
+renumbering the file would break every reference to it.
+
+Track H ran the model on 100 random baskets. It beat its own basket in 2 of
+them, giving up 8.8pp of CAGR on average, with Sharpe collapsing from ~0.65 to
+~0.17. On the live universe it gives up 1.44pp and cuts drawdown by 16pp. The
+live universe sits at the 96th percentile of the random distribution, z +1.92.
+
+That leaves exactly two readings - the curation is hindsight, or the curation is
+a repeatable rule - and no test can separate them using a universe that was
+assembled with the answer visible. This item is that test: apply the selection
+rules using only information available in 2010 and see whether the model still
+works. Until it is run, the model's mechanism is unestablished.
 
 Track F established that the universe, not the ranker, produces the return:
 equal-weighting all 49 momentum names and never trading earns 19.99%. That
