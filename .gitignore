@@ -12,3 +12,6 @@ __pycache__/
 # They stay tracked so universe changes show up as reviewable diffs.
 !universe.csv
 !snapshots/universe/*.csv
+
+# Compliance list must be tracked: changes to it have to show in a diff.
+!restricted.csv
