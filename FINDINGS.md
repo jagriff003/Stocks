@@ -1034,6 +1034,73 @@ reasons not yet distinguishable from having chosen the universe.**
 
 ---
 
+## The backtest cannot evaluate universe updates
+
+**Found 2026-09-17**, attempting to adopt a mechanically selected universe.
+
+`scripts/select_universe.py` proposed a 40-name universe from the current Schwab
+screen, maximizing effective independent bets under an industry cap of 2. The
+proposal is good by every forward-looking measure available: 25.35 effective
+bets against 22.76 for random same-size draws (97.5th percentile), 63.4% of
+ticker count against the incumbent's 56.3%, 33 industries, incumbency honoured
+with only 2 additions and 8 genuine screen failures.
+
+It backtests far worse, and consistently:
+
+| Universe | N | CAGR | Sharpe | MaxDD | Calmar |
+|---|---|---|---|---|---|
+| current | 52 | 22.30% | 1.03 | -18.80% | 1.19 |
+| proposed | 44 | 17.60% | 0.82 | -24.07% | 0.73 |
+
+Subperiod deltas: -2.41, -4.21, -5.17, -7.31. Zero of four.
+
+### Where the gap comes from
+
+Adding each dropped name back to the proposal, one at a time:
+
+| Added back | CAGR | vs proposal | that name's 2010-2026 return |
+|---|---|---|---|
+| **TSLA** | 20.69% | **+3.09%** | **22,383%** |
+| AA | 19.49% | +1.89% | 32% |
+| HYG | 18.24% | +0.64% | 131% |
+| JNJ | 18.11% | +0.51% | 572% |
+| all ten (= current) | 20.86% | +3.26% | (SPY: 792%) |
+
+**TSLA alone is 95% of the gap.** It returned 224x over the window and no longer
+passes the screen.
+
+### The conclusion, which is structural rather than about this proposal
+
+The incumbent universe was assembled over years with 2010-2026 performance
+visible. The backtest applies today's list backwards, so it *knows* TSLA
+compounded at 224x. **Any** universe update that drops TSLA will look
+catastrophic in backtest, regardless of its forward merit — and every future
+update faces the same asymmetry against whatever the current list's biggest
+winners happen to be.
+
+So the backtest is not a valid instrument for this decision. It is biased in
+favour of the incumbent by exactly the hindsight Track H identified, and the
+bias is large: 3.26pp of CAGR, 95% of it one ticker.
+
+**Universe changes must be decided on forward-looking criteria alone** — does a
+name pass the screen, does it add an independent bet, is it liquid enough to
+trade — and the backtest consulted for nothing except confirming that the
+machinery still runs. This is the operational consequence of Track H, and it
+disqualifies the most natural way anyone would want to validate a universe
+change.
+
+### An unresolved tension worth naming
+
+The screen filters FOR five-year total return above 10%. The stated expectation,
+supported by this repo's own quintile table (the worst-ranked quintile
+out-returned the best at six of seven horizons), is that names up 20% a year for
+five years are reversion candidates. The screen and the thesis point in opposite
+directions, and nothing tested here resolves it. Dropping TSLA *because* its
+five-year return decayed is, on the mean-reversion reading, dropping it at
+exactly the wrong moment.
+
+---
+
 ## What did work
 
 **The velocity window, on a corrected scale.** The original 0.7/0.3 selection
