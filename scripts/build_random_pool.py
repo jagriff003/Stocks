@@ -59,6 +59,9 @@ from pathlib import Path
 
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from momentum.restrictions import filter_screen
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
@@ -217,6 +220,21 @@ def main() -> int:
           f"price > ${args.min_price:.0f}")
     pool = screen_pool(args.min_volume, args.min_price, args.screen_cap)
     print(f"   {len(pool)} names")
+
+    # Compliance gate.  The random pool is a null benchmark, not a book, so
+    # nothing here is ever bought — but a basket drawn from it is reported as
+    # what the strategy might have earned, and a restricted name inside that
+    # number is a restricted name in a result we publish.  Filtering rather
+    # than raising, because an external screen is expected to contain them.
+    before = len(pool)
+    pool, blocked = filter_screen(pool, symbol_col="symbol")
+    if len(blocked):
+        print(f"   compliance: {before - len(pool)} restricted names dropped")
+        for _, row in blocked.iterrows():
+            nm = next((row[c] for c in ("longName", "shortName")
+                       if c in blocked.columns and pd.notna(row.get(c))), "")
+            print(f"      {row['symbol']:<8} {str(nm)[:40]:<42} "
+                  f"[{row['restricted_by']}]")
 
     if "firstTradeDateMilliseconds" in pool.columns:
         cutoff = pd.Timestamp(args.warmup_start).timestamp() * 1000

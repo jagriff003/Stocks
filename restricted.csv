@@ -1,8 +1,35 @@
-Kind,Value,Reason
-symbol,DLR,employer - Digital Realty
-symbol,EQIX,direct competitor - Equinix
-symbol,IRM,competitor - Iron Mountain data centers
-symbol,DBRG,digital infrastructure - DigitalBridge
-symbol,VNET,data centers - VNET Group
-symbol,GDS,data centers - GDS Holdings
-sub-industry,Data Center REITs,employer sector - catches new entrants under any ticker
+Kind,Value,Name,Category,Reason
+symbol,DLR,Digital Realty Trust,employer,employer
+sub-industry,Data Center REITs,,data-center-reit,catches new entrants under any ticker
+symbol,EQIX,Equinix,data-center-reit,DLR restricted list
+symbol,IRM,Iron Mountain,data-center-reit,DLR restricted list
+symbol,CDP,COPT Defense Properties,data-center-reit,DLR restricted list - identity unconfirmed in our data
+symbol,GDS,GDS Holdings,data-center-operator,DLR restricted list
+symbol,VNET,VNET Group,data-center-operator,carried over from the earlier list
+symbol,AMT,American Tower,adjacent-infrastructure,DLR restricted list
+symbol,DBRG,DigitalBridge Group,digital-infrastructure,DLR restricted list
+symbol,BXDC,Blackstone Digital Infrastructure Trust,digital-infrastructure,DLR restricted list
+symbol,BIP,Brookfield Infrastructure Partners,digital-infrastructure,DLR restricted list
+symbol,APLD,Applied Digital,crypto-ai-hosting,DLR restricted list
+symbol,BTBT,Bit Digital,crypto-ai-hosting,DLR restricted list
+symbol,WYFI,WhiteFiber,crypto-ai-hosting,DLR restricted list
+symbol,BTDR,Bitdeer Technologies,crypto-ai-hosting,DLR restricted list
+symbol,CIFR,Cipher Digital,crypto-ai-hosting,DLR restricted list
+symbol,CLSK,CleanSpark,crypto-ai-hosting,DLR restricted list
+symbol,CORZ,Core Scientific,crypto-ai-hosting,DLR restricted list
+symbol,GLXY,Galaxy Digital,crypto-ai-hosting,DLR restricted list
+symbol,HUT,Hut 8,crypto-ai-hosting,DLR restricted list
+symbol,IREN,IREN,crypto-ai-hosting,DLR restricted list
+symbol,MARA,MARA Holdings,crypto-ai-hosting,DLR restricted list
+symbol,RIOT,Riot Platforms,crypto-ai-hosting,DLR restricted list
+symbol,WULF,TeraWulf,crypto-ai-hosting,DLR restricted list
+symbol,FRMI,Fermi,crypto-ai-hosting,DLR restricted list - identity unconfirmed in our data
+symbol,KEEL,,unclassified,DLR restricted list - issuer not identified; see NOTES
+foreign-symbol,A17U SP,CapitaLand Ascendas REIT,data-center-reit,DLR restricted list - Singapore
+foreign-symbol,AJBU SP,Keppel DC REIT,data-center-reit,DLR restricted list - Singapore
+foreign-symbol,DCRU SP,Digital Core REIT,data-center-reit,DLR restricted list - Singapore; DLR-sponsored
+foreign-symbol,ME8U SP,Mapletree Industrial Trust,data-center-reit,DLR restricted list - Singapore
+foreign-symbol,NTDU SP,NTT DC REIT,data-center-reit,DLR restricted list - Singapore
+foreign-symbol,DGT AU,DigiCo Infrastructure REIT,data-center-reit,DLR restricted list - Australia
+foreign-symbol,NXT AU,NEXTDC,data-center-operator,DLR restricted list - Australia
+foreign-symbol,MP1 AU,Megaport,digital-infrastructure,DLR restricted list - Australia

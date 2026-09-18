@@ -68,6 +68,7 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+from momentum.restrictions import filter_screen
 from momentum.universe import current_symbols, defensive_symbols
 
 OUT = "universe_proposal.csv"
@@ -197,6 +198,15 @@ def main() -> int:
         raw = pd.read_csv(args.screen)
         cand = normalize_columns(raw)
         print(f"\nScreen: {len(cand)} names from {args.screen}")
+        # Compliance gate on the way in, so a restricted name cannot become a
+        # candidate at all.  Doing it here rather than at the end means the
+        # selection never has to explain why it passed one over.
+        cand, blocked = filter_screen(cand, symbol_col="symbol")
+        if len(blocked):
+            print(f"  compliance: {len(blocked)} restricted names dropped "
+                  f"-> {len(cand)} candidates")
+            for _, row in blocked.iterrows():
+                print(f"      {row['symbol']:<8} [{row['restricted_by']}]")
     elif args.demo:
         cand = pd.DataFrame({"symbol": incumbents})
         print(f"\nDEMO: using the live universe ({len(cand)} names) as the pool")
