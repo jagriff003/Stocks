@@ -74,6 +74,7 @@ def run_strategy(prices: PriceData, config: ModelConfig,
         close=prices.close,
         rank_offset=config.rank_offset,
         rank_offset_scope=config.rank_offset_scope,
+        monitor_symbols=config.monitor_symbols,
         verbose=verbose,
     )
 
@@ -127,4 +128,5 @@ def current_selection(prices: PriceData, config: ModelConfig,
         close=prices.close,
         rank_offset=config.rank_offset,
         rank_offset_scope=config.rank_offset_scope,
+        monitor_symbols=config.monitor_symbols,
     )

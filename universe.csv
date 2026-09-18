@@ -50,4 +50,4 @@ IBIT,Alternative,momentum,Y,Bitcoin Trust
 IAU,Defensive,defensive,Y,Gold ETF
 TLT,Defensive,defensive,Y,Long-Term Treasury ETF
 SHY,Defensive,defensive,Y,Short-Term Treasury ETF
-SH,Hedge,momentum,Y,Short SPY (monitor; signal to stay out when above -0.1)
+SH,Hedge,monitor,Y,Short SPY (monitor; signal to stay out when above -0.1)

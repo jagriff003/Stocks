@@ -15,7 +15,7 @@ machinery, so their results stay comparable to each other and to the baseline.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -94,8 +94,14 @@ class _PortfolioBuilder:
                  exit_config: Optional[ExitConfig] = None,
                  close: Optional[pd.DataFrame] = None,
                  rank_offset: int = 0,
-                 rank_offset_scope: str = "all"):
+                 rank_offset_scope: str = "all",
+                 monitor_symbols: Sequence[str] = ()):
         self.scores = composite_scores
+        # Scored for comparison, never selectable.  Excluded in `eligible`
+        # rather than by masking the score panel, so the name still takes part
+        # in cross-sectional normalization and still shows up in the ranking a
+        # caller inspects.
+        self.monitor_symbols = set(monitor_symbols)
         self.price_columns = price_columns
         self.top_n = top_n
         self.min_data_days = min_data_days
@@ -222,6 +228,8 @@ class _PortfolioBuilder:
 
         valid_stocks = []
         for stock in valid_scores.index:
+            if stock in self.monitor_symbols:
+                continue
             if counts.get(stock, 0) < self.min_data_days:
                 continue
 
@@ -296,12 +304,26 @@ class _PortfolioBuilder:
                 new_portfolio, trace = self.pick_momentum(
                     ranked, date, self.top_n, offset)
 
+        # Monitors are excluded from `ranked` so they can never be selected by
+        # any path, but the whole point of carrying one is to SEE it.  Report
+        # its score and the rank it would have held, without ever letting it
+        # into the candidate list.
+        monitor_view = {}
+        for sym in self.monitor_symbols:
+            score = valid_scores.get(sym)
+            if score is not None and pd.notna(score):
+                would_be = int((ranked > score).sum()) + 1
+                monitor_view[sym] = {"score": float(score),
+                                     "would_rank": would_be,
+                                     "of": len(ranked) + 1}
+
         record = {
             "Date": date,
             "Selected_Stocks": new_portfolio,
             "Scores": valid_scores.reindex(new_portfolio).to_dict(),
             "Regime": regime,
             "Trigger": "rebalance",
+            "Monitors": monitor_view,
             "_ranked": ranked,
             "_slots": slots,
         }
@@ -476,6 +498,7 @@ def build_target_portfolios(composite_scores: pd.DataFrame,
                             close: Optional[pd.DataFrame] = None,
                             rank_offset: int = 0,
                             rank_offset_scope: str = "all",
+                            monitor_symbols: Sequence[str] = (),
                             verbose: bool = False):
     """
     Decide what the model wants to hold on each date.
@@ -516,6 +539,7 @@ def build_target_portfolios(composite_scores: pd.DataFrame,
         graduated_config=graduated_config,
         exit_config=exit_config, close=close,
         rank_offset=rank_offset, rank_offset_scope=rank_offset_scope,
+        monitor_symbols=monitor_symbols,
     )
     return builder.run(verbose=verbose)
 

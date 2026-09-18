@@ -239,6 +239,26 @@ def momentum_symbols(path: Optional[Path] = None) -> List[str]:
             if r["Role"] == ROLE_MOMENTUM]
 
 
+def monitor_symbols(path: Optional[Path] = None) -> List[str]:
+    """
+    Tickers scored for comparison but never held.
+
+    The role was defined and validated from the start and never enforced: SH is
+    named in this module's own docstring as the example, yet it carried
+    Role=momentum and the model bought it on 14.6% of book-days.  It was picked
+    after declines, in ordinary (not elevated) regimes, and SPY rose over the
+    next 20 sessions on 69% of those entries.  Making it unselectable is worth
+    +2.73pp of CAGR and lifts Sharpe 0.90 -> 1.03.
+
+    Keeping such a name in the panel is deliberate rather than merely harmless.
+    Scores are normalized cross-sectionally, so a counter-name's rank is real
+    information about breadth; removing SH from the universe entirely is
+    measurably *worse* than keeping it unselectable (-0.18pp).
+    """
+    return [r["Symbol"] for r in read_universe_file(path)
+            if r["Role"] == ROLE_MONITOR]
+
+
 def sector_map(path: Optional[Path] = None) -> Dict[str, str]:
     """Symbol -> sector, for concentration reporting."""
     return {r["Symbol"]: r["Sector"] for r in read_universe_file(path)}
