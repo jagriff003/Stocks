@@ -38,6 +38,7 @@ metrics and is subperiod-consistent.
 | Track F — null benchmark / ranker IC | **measured** | ranking worth +0.84pp gross; universe carries the rest |
 | Track G — wide book + weight overlay | **viable alternative** | -1.6pp CAGR, +0.12 Sharpe, -3.6pp vol, 2.5x trades |
 | Track G's risk claim | **retracted** | no decay trend; drawdown gap not resolvable on one history |
+| Track H — 100 random baskets | **does not generalize** | model beat its own basket in 2 of 100; edge -8.8pp |
 | Model health monitor | **built** | diagnostic, not a return change |
 
 Live model: **19.84% CAGR, 0.91 Sharpe, -19.23% max drawdown, Calmar 1.03**,
@@ -932,6 +933,104 @@ absolute numbers that are inflated, and they are inflated by a lot.
 
 This is the single most useful distinction to hold when reading this document:
 **trust the differences, discount the levels.**
+
+---
+
+## Track H — the model does not generalize to baskets it was not built on
+
+**Run 2026-09-17.** `scripts/build_random_pool.py` then
+`scripts/analyze_random_baskets.py`. 100 random baskets of 40 names across four
+families, drawn from 747 US equities that are liquid today and have full
+2010-2026 history. The live universe run through the identical code path
+reconciles with production to 0.064%.
+
+The question was whether the model performs because of what it does, or because
+of what it was handed. The answer is the second.
+
+### The model destroys value on baskets it has not seen
+
+Each row compares the model against **equal-weighting that same basket** — the
+comparison that is immune to survivorship, period and phase bias, because both
+arms carry all three equally.
+
+| Family | model CAGR | EW CAGR | edge | win rate | model DD | EW DD | DD edge | model Sharpe | EW Sharpe |
+|---|---|---|---|---|---|---|---|---|---|
+| **LIVE universe** | 19.57% | 21.01% | **-1.44%** | — | **-19.2%** | -35.2% | **+16.0%** | 0.90 | 0.99 |
+| stratified/cap-matched | 7.91% | 16.68% | -8.78% | 0% | -36.0% | -39.2% | +3.2% | 0.20 | 0.69 |
+| stratified/all-cap | 6.31% | 15.53% | -9.21% | 4% | -48.1% | -42.2% | -5.8% | 0.08 | 0.57 |
+| random/cap-matched | 9.36% | 17.35% | -7.98% | 0% | -35.6% | -37.9% | +2.3% | 0.28 | 0.73 |
+| random/all-cap | 7.40% | 16.62% | -9.22% | 4% | -50.2% | -41.5% | -8.7% | 0.13 | 0.62 |
+
+**The model beat its own basket in 2 of 100 random baskets.** Across all 100 the
+edge averages **-8.80%** (sd 3.84%, range -17.90% to +3.82%). Sharpe collapses
+from ~0.65 for owning the basket to ~0.17 for running the model on it. The
+drawdown protection that is the model's main documented virtue is worth +3.2pp
+at best and is *negative* on all-cap baskets.
+
+The live universe's edge of -1.44% sits at the **96th percentile** of that
+distribution, z = **+1.92**.
+
+### Two readings, and this test cannot separate them
+
+**Reading one: the curation is hindsight.** The live universe was assembled over
+years with 2010-2026 performance visible. A universe selected that way will of
+course sit in the right tail of randomly drawn ones, and z = +1.92 is precisely
+the size of effect that selection-with-knowledge produces. On this reading the
+model has no transferable mechanism and the entire record is universe choice.
+
+**Reading two: the curation is a repeatable process.** The screen targets
+liquid, trending, sector-diversified, large-cap names. That is a rule, not a
+list, and rules can generalize even when the specific names were chosen late.
+
+Nothing in this study distinguishes them, because there is exactly one live
+universe and it was built with the answer visible. **TODO item 6 — running the
+model on a frozen 2010-vintage universe — is now the decisive experiment for the
+whole program rather than merely the most valuable one.** It applies the
+selection rules using only information available in 2010 and asks whether the
+model still works. That is the only available test that can tell hindsight from
+process.
+
+### One component that does look structural
+
+Cap-matched families hold up markedly better on drawdown than all-cap ones
+(+3.2pp and +2.3pp against -5.8pp and -8.7pp), and their model drawdowns are
+-35.6%/-36.0% against -48.1%/-50.2%. **A four-name book is only survivable in
+mega-caps.** That is a principled, transferable finding rather than a hindsight
+artifact, and it is consistent with Track E's result that drawdown improves
+monotonically with book size up to four and then flattens: concentration is
+tolerable only when the constituents are individually stable.
+
+It does not rescue the return result. Cap-matched families still give up 8.0-8.8pp
+of CAGR to owning their own baskets.
+
+### A hypothesis that was tested and failed
+
+The live universe carries instruments the ranker can use as escape hatches that
+no equity basket has: **SH** (short SPY) and **HYG** (high-yield credit) sit in
+the *momentum* sleeve, and FINDINGS already records that "momentum picks SH
+outright in a downturn". The obvious hypothesis was that the drawdown advantage
+comes from having somewhere to hide.
+
+It does not. Adding SH and HYG to 25 random baskets made every measure **worse**:
+model CAGR 9.98% -> 8.04%, edge -6.77% -> -8.70%, drawdown -47.1% -> -49.6%. The
+ranker does use them — 17.2% of book-days — and using them costs money. The
+hatch improved the edge in 1 basket of 25.
+
+Recorded because it is a plausible-sounding explanation that happens to be
+false, and would otherwise be proposed again.
+
+### What this changes
+
+The live model is unchanged and the decision to keep it is untouched: whatever
+the reason, the configuration that is actually running produced 19.57% at -19.2%
+drawdown over this window.
+
+What changes is the standing of every general claim about the *mechanism*. The
+overlay, the ranker and the book size were all characterized on one universe.
+Track F established the ranker contributes little; this establishes that even
+what remains does not survive contact with a different basket. The honest
+summary of the model is now: **a configuration that works on this universe, for
+reasons not yet distinguishable from having chosen the universe.**
 
 ---
 
