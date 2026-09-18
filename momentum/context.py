@@ -222,6 +222,53 @@ def report(close: pd.DataFrame, spy: pd.Series,
                  "tested at the")
     lines.append("  noise floor as monitors and negative in combination.")
 
+    # --- composite, as a DESCRIPTION and explicitly not a forecast ---
+    #
+    # Stacking is defensible in a way I initially doubted: the six risk-on
+    # flags have a mean pairwise correlation of +0.06 and all agree on only
+    # 3.5% of days, so they are closer to six votes than to one.  The size and
+    # credit cluster hangs together (0.25-0.50) but the dollar, commodities and
+    # the advancing share are near-independent of everything.
+    #
+    # It still does not predict.  Forward SPY returns by green count are
+    # non-monotone and the extremes run backwards (0 greens +1.78%, 6 greens
+    # -0.01%); 4-6 greens against 0-2 greens gives -0.13%, t -0.29.  Six weak
+    # near-independent signals do not aggregate into a forecast here, so the
+    # count is printed as orientation and labelled as such.
+    states_now, on_count, scored = [], 0, 0
+    for nm in names:
+        if nm not in close.columns:
+            continue
+        sig = SIGNALS.get(nm)
+        s = close[nm].dropna()
+        if len(s) < window + horizon:
+            continue
+        st = trend_state(s, window)
+        if not st.notna().any():
+            continue
+        above = st.dropna().iloc[-1] == "above"
+        risk_on = getattr(sig, "risk_on", "above") if sig else "above"
+        scored += 1
+        if risk_on is None:
+            states_now.append(f"{nm} --")
+            continue
+        supportive = above if risk_on != "below" else not above
+        on_count += int(supportive)
+        states_now.append(f"{nm} {'ON ' if supportive else 'off'}")
+
+    if scored:
+        lines.append("")
+        lines.append(f"  RISK-ON: {on_count} of {scored}   "
+                     + " | ".join(states_now))
+        lines.append("    A summary of where conditions sit, not a forecast. "
+                     "The count does not")
+        lines.append("    predict forward returns (4-6 on vs 0-2 on: -0.13% "
+                     "over 14 sessions, t -0.29),")
+        lines.append("    and the six are near-independent (mean pairwise "
+                     "correlation +0.06), so read")
+        lines.append("    it as breadth of conditions rather than as strength "
+                     "of evidence.")
+
     for nm in names:
         if nm not in close.columns:
             continue
