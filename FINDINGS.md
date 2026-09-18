@@ -44,11 +44,16 @@ Live model: **19.84% CAGR, 0.91 Sharpe, -19.23% max drawdown, Calmar 1.03**,
 net of realistic fills and costs. The honest like-for-like starting point was
 12.80%.
 
-**Two standing deductions from that figure**, recorded 2026-09-17 and
-independent of each other: roughly 3.2pp is rotation-phase luck (see "Rotation
-phase is worth ~3pp of the headline CAGR"), and an unbounded further amount is
-survivorship (TODO item 6). The phase-averaged figure for this configuration is
-16.42%.
+**Four standing deductions from that figure**, recorded 2026-09-17, mutually
+independent and compounding: the window sits at the **91st percentile** of
+available 15.9-year windows (SPY earned 14.02% in it against 8.02% in the median
+one); roughly **3.2pp is rotation-phase luck**; survivorship is unbounded (TODO
+6); and multiple testing is unaccounted (TODO 7). The phase-averaged figure for
+this configuration is 16.42%, before the other three.
+
+Read the levels in this document as inflated by a large and only partly
+quantified amount, and the differences between arms as sound. See "The backtest
+window is in the top decile of available history".
 
 **Read that next to Track F.** Owning the same universe equal-weighted, trading
 almost never, earns 19.99% at a 0.92 Sharpe — the model's return advantage over
@@ -853,6 +858,80 @@ slot-based overlay does invert on a wide book, and the weight-based overlay does
 scale. Those compare configurations on identical phases and identical history.
 The rebalancing-policy result also stands, for the same reason. It is sweep 3
 and the ranked-versus-random risk interpretation that this corrects.
+
+---
+
+## The backtest window is in the top decile of available history
+
+**Measured 2026-09-17.** The record starts 2010-01-04 because that is where a
+clean panel for today's universe begins, not because anyone chose it. That
+choice is not neutral.
+
+SPY total return over overlapping 15.9-year windows since 1993 — the same length
+as the backtest:
+
+| | SPY CAGR |
+|---|---|
+| **Our window, 2010-01-04 onward** | **14.02%** |
+| Median of 213 comparable windows | 8.02% |
+| p25 / p75 | 6.00% / 9.59% |
+| Best window on record | 16.53% |
+| Worst window on record | 3.41% |
+| **Percentile of our window** | **91st** |
+
+By decade:
+
+| Period | SPY CAGR |
+|---|---|
+| 1993-2000 | 21.29% |
+| **2000-2010** | **-0.91%** |
+| 2010-2020 | 13.27% |
+| 2020-2026 | 15.00% |
+| 1993-2026 | 10.79% |
+
+The market returned 14.02% in our window against 8.02% in the median comparable
+one. The decade immediately preceding the record returned **-0.91%** — a model
+measured over 2000-2010 would be a different document.
+
+The pass-through to the model is not 1:1 and is not estimated here. The blended
+book runs at roughly half of SPY's beta, so a naive subtraction would be wrong
+in the other direction. What is established is the direction and that the
+magnitude is large.
+
+### Four deductions now stand against the headline
+
+| Bias | Size | Status |
+|---|---|---|
+| Period generosity | ~6pp on the market; pass-through unknown | measured 2026-09-17 |
+| Rotation phase | ~3.2pp | measured 2026-09-17 |
+| Survivorship | unbounded | TODO 6, unmeasured |
+| Multiple testing | unknown | TODO 7, unmeasured |
+
+They are independent and they compound. **No sentence of the form "this strategy
+returns 19.6%" is defensible.** The supportable claim is narrower and still
+worth having: measured over a top-decile decade on a survivorship-selected
+universe, the strategy roughly matched its own universe on return and
+substantially beat it on drawdown.
+
+### What this does not touch, and why that matters
+
+Every one of these biases moves LEVELS. None of them moves the DIFFERENCE
+between two arms measured on the same window, the same rotation phase and the
+same universe — which is how every comparative result in this file was
+measured:
+
+- the ranker at the 61st percentile of random draws (Track F)
+- the overlay worth +3.03pp gross on ranked picks and -1.18pp on random (Track F)
+- `top_n=4` against other book sizes (Track E)
+- the slot-based overlay inverting on a wide book (Track G)
+- rebalancing policy being irrelevant (Track G)
+
+Those stand. The research program's comparative conclusions are robust to all
+four biases precisely because both arms carry each bias equally. It is only the
+absolute numbers that are inflated, and they are inflated by a lot.
+
+This is the single most useful distinction to hold when reading this document:
+**trust the differences, discount the levels.**
 
 ---
 
