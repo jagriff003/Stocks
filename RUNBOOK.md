@@ -169,3 +169,56 @@ fixed it.
 you mean to trade on, do not trade the book** — re-run with `--no-cache`. The
 cost of one stale session is small in expectation and wide in outcome, which is
 exactly the combination not worth accepting when re-running is free.
+
+---
+
+## Running it unattended
+
+`run_live.py` can run on a schedule, but not in its default form: it ends at
+`plt.show()`, which blocks forever when there is no window to close. A
+scheduled task that looks hung is almost always this.
+
+Three ways to run it, depending on whether you want the pictures:
+
+| goal | command |
+|---|---|
+| interactive, charts on screen | `python scripts/run_live.py` |
+| scheduled, charts kept as PNGs | `python scripts/run_live.py --save-charts charts` |
+| scheduled, no charts at all | `python scripts/run_live.py --no-plots` |
+
+`--save-charts DIR` writes `YYYY-MM-DD_performance.png`, `_held-book.png` and
+`_context.png` into `DIR`, creating it if needed, and forces a non-GUI
+matplotlib backend so nothing tries to open a window.
+
+### Read the exit code, not the log
+
+The context panel, the health monitor and the charts are each allowed to fail
+without stopping the run — the book is still worth having when the context
+panel cannot fetch a series. Interactively you see the skip line. On a
+schedule, nobody reads the log, so the run reports itself through the exit
+status instead:
+
+| code | meaning |
+|---|---|
+| 0 | complete — everything ran |
+| 2 | **the book printed, but something was skipped**; the run ends with an `INCOMPLETE RUN` block naming each component and why |
+| other | the run failed outright, including a restricted name reaching the universe (that one is deliberate and must never be suppressed) |
+
+A task that ignores the exit code will happily report success on a run that
+skipped the health monitor for a month.
+
+### Windows Scheduler
+
+Point the action at the venv's python directly rather than at a shell, so no
+console is needed:
+
+```
+Program:   C:\Users\USER\OneDrive\Analytics\Stocks\.venv-1\Scripts\python.exe
+Arguments: scripts\run_live.py --save-charts charts
+Start in:  C:\Users\USER\OneDrive\Analytics\Stocks
+```
+
+Schedule it **after the close** — the panel must contain the session you intend
+to trade. Check `Signal session:` in the output against the date you expect
+before acting on any scheduled run's book; everything in the section above
+about stale panels applies exactly as much when a machine ran it.

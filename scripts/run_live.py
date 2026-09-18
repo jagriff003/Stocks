@@ -321,12 +321,58 @@ def print_rotation_sets(result, prices, config, ranking_scores, base_scores,
                   f"  /  in {', '.join(into) or '(none)'}")
 
 
+class Degradations:
+    """
+    What the run silently did without.
+
+    Three subsystems here are deliberately allowed to fail without stopping the
+    run: the context panel, the health monitor and the charts.  That is the
+    right call interactively, where a skip line on screen is impossible to
+    miss.  It is the wrong call under a scheduler, where nobody reads the log
+    and an exit code of 0 is taken to mean the report is complete.
+
+    So skips are collected rather than only printed, restated together at the
+    end, and reflected in the exit status.  The run still finishes and still
+    prints the book -- a missing context panel is not a reason to withhold the
+    recommendation -- but it stops claiming to have succeeded.
+    """
+
+    def __init__(self):
+        self.items = []
+
+    def note(self, component: str, exc: BaseException) -> None:
+        self.items.append((component, f"{type(exc).__name__}: {exc}"))
+
+    def __bool__(self) -> bool:
+        return bool(self.items)
+
+    def report(self) -> None:
+        if not self.items:
+            return
+        print()
+        print("=" * 78)
+        print(f"INCOMPLETE RUN -- {len(self.items)} component(s) skipped")
+        print("=" * 78)
+        for component, reason in self.items:
+            print(f"  {component:<18} {reason}")
+        print()
+        print("  The book above is still valid; these are the things that did")
+        print("  not run alongside it.  Exit status 2 so a scheduler notices.")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the live momentum model")
     parser.add_argument("--legacy", action="store_true",
                         help="reproduce pre-refactor behaviour exactly")
     parser.add_argument("--no-plots", action="store_true",
-                        help="skip charts, for scheduled/headless runs")
+                        help="skip charts entirely, for scheduled/headless runs")
+    parser.add_argument("--save-charts", metavar="DIR", default=None,
+                        help="render charts to PNGs in DIR instead of opening "
+                             "a window. The option that makes a scheduled run "
+                             "worth reading: `plt.show()` blocks forever with "
+                             "no display, and --no-plots throws the charts "
+                             "away, so neither lets you schedule the run AND "
+                             "still look at the pictures afterwards.")
     parser.add_argument("--start", default="2010-01-01")
     parser.add_argument("--no-cache", action="store_true",
                         help="force a fresh download")
@@ -351,6 +397,14 @@ def main() -> int:
                              "defaults to the latest available session")
     args = parser.parse_args()
 
+    # Matplotlib picks its backend at first import of pyplot, so this has to
+    # happen before anything draws.  Without it, a saved-charts run on a box
+    # with a display still tries to open windows.
+    if args.save_charts:
+        import matplotlib
+        matplotlib.use("Agg")
+
+    degraded = Degradations()
     config = build_config(legacy=args.legacy)
     today = date.today()
 
@@ -517,6 +571,7 @@ def main() -> int:
                 print(f"  (A/D computed over {n_pool} pool names)")
         except Exception as exc:   # context must never break the live run
             print(f"\n(Context skipped: {type(exc).__name__}: {exc})")
+            degraded.note("context panel", exc)
 
     # --- health monitor ---
     #
@@ -543,6 +598,7 @@ def main() -> int:
     except Exception as exc:          # a monitor must never break the live run
         print()
         print(f"(Health monitor skipped: {exc})")
+        degraded.note("health monitor", exc)
 
     # --- the two sets, last so they need no scrolling ---
     print_rotation_sets(result, prices, config, ranking_scores,
@@ -553,6 +609,7 @@ def main() -> int:
         try:
             import matplotlib.pyplot as plt
 
+            held_fig = None      # only drawn when there is a book to draw
             wealth = (1 + result.returns).cumprod()
             fig, axes = plt.subplots(2, 1, figsize=(12, 8))
             axes[0].plot(wealth.index, wealth.values, linewidth=1.6)
@@ -587,7 +644,7 @@ def main() -> int:
                 lookback = min(args.chart_days, len(prices.close))
                 sub = prices.close[held].iloc[-lookback:].dropna(axis=1, how="all")
                 if not sub.empty:
-                    fig2, ax = plt.subplots(figsize=(13, 6))
+                    held_fig, ax = plt.subplots(figsize=(13, 6))
                     for sym in sub.columns:
                         s = sub[sym].dropna()
                         if s.empty:
@@ -606,14 +663,41 @@ def main() -> int:
                     ax.set_ylabel("Rebased (100 = start)")
                     ax.grid(alpha=0.3)
                     ax.legend(loc="best", fontsize=9)
-                    fig2.tight_layout()
+                    held_fig.tight_layout()
 
-            if ctx is not None:
-                plot_context(ctx.close, CONTEXT_SERIES)
+            ctx_fig = (plot_context(ctx.close, CONTEXT_SERIES)
+                       if ctx is not None else None)
 
-            plt.show()
+            if args.save_charts:
+                outdir = Path(args.save_charts)
+                outdir.mkdir(parents=True, exist_ok=True)
+                stamp = today.isoformat()
+                # fig2 and ctx_fig are both conditional, so the list is built
+                # from what actually got drawn rather than from what usually
+                # does — a run with no held book has no held-book chart.
+                named = [("performance", fig),
+                         ("held-book", held_fig),
+                         ("context", ctx_fig)]
+                print(f"\nCharts written to {outdir}:")
+                for name, figure in named:
+                    if figure is None:
+                        continue
+                    path = outdir / f"{stamp}_{name}.png"
+                    figure.savefig(path, dpi=110, bbox_inches="tight")
+                    print(f"  {path.name}")
+            else:
+                plt.show()
+
+            # Figures hold their memory until closed, which matters once this
+            # runs on a schedule rather than once by hand.
+            plt.close("all")
         except Exception as exc:      # a headless box should not fail the run
-            print(f"\n(Charts skipped: {exc})")
+            print(f"\n(Charts skipped: {type(exc).__name__}: {exc})")
+            degraded.note("charts", exc)
+
+    degraded.report()
+    if degraded:
+        return 2
 
     print("\n=== RUN COMPLETE ===")
     return 0
