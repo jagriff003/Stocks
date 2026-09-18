@@ -106,6 +106,97 @@ def _print_book(record, prices, indent="    "):
               + ("  [relaxed]" if record.get("Corr_Relaxed") else ""))
 
 
+CONTEXT_LEGS = ["UUP", "DBC", "LQD", "RSP", "IWM", "SPY", "HYG"]
+CONTEXT_SERIES = ["RSP_SPY", "HYG_LQD", "IWM_SPY", "AD_LINE", "UUP", "DBC"]
+
+
+def build_context(prices, start, use_breadth=True):
+    """
+    Build the context series on a SEPARATE panel from the model's.
+
+    Deliberately separate.  These series are displayed and never scored — every
+    one of them tested at the noise floor as a monitor and they were materially
+    negative in combination (all monitors: +0.02pp of CAGR, drawdown out to
+    -20.84% from -18.80%).  Downloading them into the model's own panel would
+    put them into the cross-sectional normalization and quietly change the
+    scores, which is exactly the outcome the testing said to avoid.  Keeping
+    two panels makes that mistake impossible rather than merely unlikely.
+    """
+    import yfinance as yf
+    from momentum.data import PriceData
+    from momentum.synthetic import BreadthSpec, RatioSpec, augment
+
+    pool = []
+    pool_path = REPO_ROOT / "random_pool.csv"
+    if use_breadth and pool_path.exists():
+        pool = pd.read_csv(pool_path)["symbol"].dropna().astype(str).tolist()
+
+    syms = sorted(set(CONTEXT_LEGS) | set(pool))
+    frames = []
+    for i in range(0, len(syms), 400):
+        d = yf.download(syms[i:i + 400], start=start, interval="1d",
+                        auto_adjust=True, progress=False, threads=True,
+                        group_by="column")
+        frames.append(d["Close"] if isinstance(d.columns, pd.MultiIndex) else d)
+    close = pd.concat(frames, axis=1)
+    close = close.loc[:, ~close.columns.duplicated()]
+
+    monitors = list(CONTEXT_SERIES)
+    ratios = [RatioSpec("RSP_SPY", "RSP", "SPY"),
+              RatioSpec("HYG_LQD", "HYG", "LQD"),
+              RatioSpec("IWM_SPY", "IWM", "SPY")]
+    ratios = [r for r in ratios
+              if r.numerator in close.columns and r.denominator in close.columns]
+    breadth = []
+    live_pool = [s for s in pool if s in close.columns]
+    if len(live_pool) >= 20:
+        breadth = [BreadthSpec("AD_LINE", live_pool)]
+
+    panel = PriceData(close=close, open_=close, spy=prices.spy, vix=prices.vix)
+    return augment(panel, ratios=ratios, breadth=breadth,
+                   monitor_symbols=monitors), len(live_pool)
+
+
+def plot_context(ctx_close, names, window=200, lookback=504):
+    """Small multiples: each signal against its own trend, shaded by state."""
+    import matplotlib.pyplot as plt
+
+    have = [n for n in names if n in ctx_close.columns
+            and ctx_close[n].notna().sum() > window + 20]
+    if not have:
+        return None
+    ncol = 3
+    nrow = (len(have) + ncol - 1) // ncol
+    fig, axes = plt.subplots(nrow, ncol, figsize=(14, 3.1 * nrow), squeeze=False)
+    from momentum.context import SIGNALS
+
+    for i, nm in enumerate(have):
+        ax = axes[i // ncol][i % ncol]
+        s = ctx_close[nm].dropna().iloc[-lookback:]
+        ma = ctx_close[nm].dropna().rolling(window).mean().reindex(s.index)
+        ax.plot(s.index, s.values, linewidth=1.4)
+        ax.plot(ma.index, ma.values, linewidth=1.0, linestyle="--",
+                color="grey")
+        ax.fill_between(s.index, s.values, ma.values,
+                        where=(s.values >= ma.values), alpha=0.18,
+                        color="tab:green", interpolate=True)
+        ax.fill_between(s.index, s.values, ma.values,
+                        where=(s.values < ma.values), alpha=0.18,
+                        color="tab:red", interpolate=True)
+        state = "ABOVE" if s.iloc[-1] >= (ma.iloc[-1] or 0) else "BELOW"
+        sig = SIGNALS.get(nm)
+        title = (sig.label if sig else nm)
+        ax.set_title(f"{title}\n{state} its {window}d avg", fontsize=9)
+        ax.grid(alpha=0.25)
+        ax.tick_params(labelsize=7)
+    for j in range(len(have), nrow * ncol):
+        axes[j // ncol][j % ncol].axis("off")
+    fig.suptitle("Context — displayed only, never scored "
+                 "(green = above trend, red = below)", fontsize=11)
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    return fig
+
+
 def print_rotation_sets(result, prices, config, ranking_scores, base_scores,
                         as_of=None):
     """
@@ -210,6 +301,11 @@ def main() -> int:
     parser.add_argument("--drop-unsettled", action="store_true",
                         help="exclude today's session when the market has not "
                              "closed yet, instead of warning about it")
+    parser.add_argument("--no-context", action="store_true",
+                        help="skip the context panel and its chart")
+    parser.add_argument("--no-breadth", action="store_true",
+                        help="skip the advance/decline line (avoids the ~750 "
+                             "symbol pool download)")
     parser.add_argument("--chart-days", type=int, default=252,
                         help="sessions shown in the held-book chart")
     parser.add_argument("--show-rebalances", type=int, default=20,
@@ -374,6 +470,22 @@ def main() -> int:
               f"{sorted(mats)})")
     print(f"  all {len(mats)} windows exported to CSV")
 
+    # --- context signals (displayed, never scored) ---
+    ctx = None
+    if not args.no_context:
+        try:
+            ctx, n_pool = build_context(prices, args.start,
+                                        use_breadth=not args.no_breadth)
+            from momentum.context import report as context_report
+            print()
+            print(context_report(ctx.close, prices.spy, CONTEXT_SERIES,
+                                 model_returns=result.returns,
+                                 horizon=config.hold_days))
+            if n_pool:
+                print(f"  (A/D computed over {n_pool} pool names)")
+        except Exception as exc:   # context must never break the live run
+            print(f"\n(Context skipped: {type(exc).__name__}: {exc})")
+
     # --- health monitor ---
     #
     # Above the rotation sets rather than below them: if the model is in a
@@ -463,6 +575,9 @@ def main() -> int:
                     ax.grid(alpha=0.3)
                     ax.legend(loc="best", fontsize=9)
                     fig2.tight_layout()
+
+            if ctx is not None:
+                plot_context(ctx.close, CONTEXT_SERIES)
 
             plt.show()
         except Exception as exc:      # a headless box should not fail the run
