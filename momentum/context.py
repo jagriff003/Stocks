@@ -105,9 +105,15 @@ SIGNALS: Dict[str, ContextSignal] = {
         "DBC", "Broad commodities",
         "inflationary pressure and real-asset strength",
         "disinflation, or demand weakness",
-        "held in the model once and dropped: too volatile on a two-week hold",
-        risk_on=None,
-        green_means=""),
+        "held in the model once and dropped: too volatile on a two-week hold. "
+        "Direction here is a PRIOR, not a measured effect - see below",
+        risk_on="below",
+        green_means="cheap commodities. Rising commodities read as a cost and "
+                    "rate headwind: SPY returned +0.59% over the next 14d with "
+                    "DBC above its 200d average against +1.07% below, and the "
+                    "sign held in 14 of 15 tests across 3 state definitions and "
+                    "5 horizons - but max |t| was 1.31, the tests overlap "
+                    "heavily, and none is individually significant"),
     "SH": ContextSignal(
         "SH", "Short S&P 500 (monitor only, never held)",
         "the counter-trade is ranking well - breadth is deteriorating",
