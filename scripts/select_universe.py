@@ -182,8 +182,16 @@ def main() -> int:
     print(f"Started {datetime.now():%Y-%m-%d %H:%M:%S}")
     print("=" * 96)
 
+    # Roles that no equity screener will ever return.  The defensive sleeve and
+    # any monitors are deliberate structural additions, not screen results, and
+    # reporting them as "dropped" because a stock screen did not list an ETF is
+    # simply wrong.  They are carried through untouched.
+    from momentum.universe import monitor_symbols, read_universe_file
     defensive = set(defensive_symbols())
-    incumbents = [s for s in current_symbols() if s not in defensive]
+    monitors = set(monitor_symbols())
+    structural = defensive | monitors
+    roles = {r["Symbol"]: r["Role"] for r in read_universe_file()}
+    incumbents = [s for s in current_symbols() if s not in structural]
 
     if args.screen:
         raw = pd.read_csv(args.screen)
@@ -310,6 +318,9 @@ def main() -> int:
     added = [s for s in chosen if s not in incumbents]
     kept = [s for s in chosen if s in incumbents]
     gone = [s for s in inc_ok if s not in chosen]
+    print("")
+    print(f"  Structural names carried through untouched ({len(structural)}): "
+          + ", ".join(f"{s}[{roles.get(s, '?')}]" for s in sorted(structural)))
     print(f"\n  Kept {len(kept)}   Added {len(added)}   Dropped {len(gone)}")
     if added:
         print(f"    added:   {', '.join(added)}")
@@ -326,10 +337,13 @@ def main() -> int:
     print(f"\n  Industry spread: {len(ind_counts)} industries, "
           f"max {ind_counts.max()} in one")
 
-    pd.DataFrame({"Symbol": chosen,
-                  "Industry": [industry.get(s, "?") for s in chosen],
-                  "Status": ["kept" if s in incumbents else "added"
-                             for s in chosen]}).to_csv(REPO_ROOT / OUT, index=False)
+    rows = [{"Symbol": s, "Industry": industry.get(s, "?"),
+             "Role": "momentum",
+             "Status": "kept" if s in incumbents else "added"}
+            for s in chosen]
+    rows += [{"Symbol": s, "Industry": "-", "Role": roles.get(s, "?"),
+              "Status": "structural"} for s in sorted(structural)]
+    pd.DataFrame(rows).to_csv(REPO_ROOT / OUT, index=False)
     print(f"\nProposal written to {REPO_ROOT / OUT}")
     print(f"\nCompleted {datetime.now():%Y-%m-%d %H:%M:%S}")
     return 0
