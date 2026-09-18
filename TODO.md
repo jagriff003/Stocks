@@ -158,6 +158,50 @@ machinery. Build it once for both.
 
 ---
 
+## 9. Loose threads opened 2026-09-17 and not pursued
+
+Recorded so they are not rediscovered from scratch.
+
+**Scoring horizon is mismatched to where the signal lives.** The IC table found
+the composite predicts returns only at **126 days** (+1.38pp top-minus-bottom,
+104bps top-4 edge); at 5-63 days it predicts reversal. The composite is built
+from RSI(14), 20d relative strength and 5d velocity, with only MA(50/200)
+reaching long. Untested: does a long-horizon-weighted composite improve the
+top-K edge? The tension to resolve first is that return information sits at 126
+days while the risk information the rotation harvests sits near 14, and those
+want opposite hold lengths.
+
+**Risk claims rest on max drawdown, which is barely estimable.** It is a
+single-episode statistic - one number set by one stretch of one history - so
+comparing it across arms has almost no power. Several FINDINGS results turn on
+drawdown differences of 2-3pp and are weaker than they read. Re-express them
+using measures that aggregate over episodes: downside deviation, Ulcer index,
+mean of the worst k drawdowns, 5th percentile of rolling 6-month returns.
+
+**The screen and the thesis point opposite ways.** The Schwab screen filters FOR
+five-year total return above 10%; the stated expectation, supported by the
+quintile table, is that such names are reversion candidates. Nothing resolves
+this. It decides whether names like TSLA should be dropped when their five-year
+return decays or held precisely because it has.
+
+**A candidate mechanical rule, from the TSLA case.** TSLA contributed +0.401 over
+2012-2021 and -0.011 over 2022-2026 across 96 position-days. "Drop a name whose
+contribution over the trailing N years is below X" would be mechanical, testable,
+and appears to encode what judgment did here. It is the first piece of the
+operator's discretion that looks convertible into something a script can run
+blind, which matters for item 6.
+
+**TSM/NVDA overlap was accepted by hand and never costed.** Both semiconductors,
+knowingly correlated. What the duplication costs in effective bets and in
+drawdown is unmeasured.
+
+**Universe changes create forced trades the backtest never models.** The
+2026-09-17 update orphaned a held position (BR) that is no longer in the
+universe. The backtest assumes today's universe always existed, so it prices
+none of this. Belongs with item 2.
+
+---
+
 ## 1. Defensive posture — is it held too long, and what does it cost?
 
 **Raised 2026-09-03.** The regime overlay puts SHY/TLT/IAU in the book, and

@@ -36,6 +36,8 @@ from momentum.reports import (correlation_matrices, individual_stock_performance
                               portfolio_concentration, portfolio_correlation,
                               summarize_correlations)
 from momentum.strategy import compute_scores, current_selection, run_strategy
+from momentum.restrictions import check_symbols
+from momentum.restrictions import describe as describe_restrictions
 from momentum.universe import (current_symbols, sector_map,
                                snapshot_current_universe)
 
@@ -216,6 +218,12 @@ def main() -> int:
     config = build_config(legacy=args.legacy)
     today = date.today()
 
+    # Compliance gate, before anything is computed or printed.  This raises
+    # rather than warns: a restricted name reaching a recommendation is a
+    # failure regardless of what it would have earned, and the only safe
+    # response is to stop rather than print a book with a caveat attached.
+    check_symbols(current_symbols(), "universe.csv")
+
     print("=" * 78)
     print(f"MOMENTUM MODEL — LIVE RUN  {today.isoformat()}")
     if args.legacy:
@@ -227,6 +235,8 @@ def main() -> int:
     cfg_path = snapshot_config(config, as_of=today,
                                label="legacy" if args.legacy else "live")
     print(f"\nSnapshots written:\n  {uni_path.name}\n  {cfg_path.name}")
+    print()
+    print(describe_restrictions())
 
     symbols = current_symbols()
     prices = load_data(symbols, start_date=args.start,
