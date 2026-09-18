@@ -157,6 +157,19 @@ def build_context(prices, start, use_breadth=True):
                    monitor_symbols=monitors), len(live_pool)
 
 
+def _wrap(text, width):
+    """Fold a caption so it fits under a narrow subplot."""
+    words, lines, cur = text.split(), [], ""
+    for w in words:
+        if len(cur) + len(w) + 1 > width:
+            lines.append(cur); cur = w
+        else:
+            cur = f"{cur} {w}".strip()
+    if cur:
+        lines.append(cur)
+    return chr(10).join(lines)
+
+
 def plot_context(ctx_close, names, window=200, lookback=504):
     """Small multiples: each signal against its own trend, shaded by state."""
     import matplotlib.pyplot as plt
@@ -174,26 +187,45 @@ def plot_context(ctx_close, names, window=200, lookback=504):
         ax = axes[i // ncol][i % ncol]
         s = ctx_close[nm].dropna().iloc[-lookback:]
         ma = ctx_close[nm].dropna().rolling(window).mean().reindex(s.index)
-        ax.plot(s.index, s.values, linewidth=1.4)
-        ax.plot(ma.index, ma.values, linewidth=1.0, linestyle="--",
-                color="grey")
-        ax.fill_between(s.index, s.values, ma.values,
-                        where=(s.values >= ma.values), alpha=0.18,
-                        color="tab:green", interpolate=True)
-        ax.fill_between(s.index, s.values, ma.values,
-                        where=(s.values < ma.values), alpha=0.18,
-                        color="tab:red", interpolate=True)
-        state = "ABOVE" if s.iloc[-1] >= (ma.iloc[-1] or 0) else "BELOW"
         sig = SIGNALS.get(nm)
-        title = (sig.label if sig else nm)
-        ax.set_title(f"{title}\n{state} its {window}d avg", fontsize=9)
+
+        # Colour encodes RISK-ON, not "above its average".  Those coincide for
+        # breadth and credit and are OPPOSITE for the dollar: a rising dollar
+        # is a headwind for multinational earnings and commodities, so green
+        # for UUP is the lower line.  Shading by position alone would have read
+        # as a directional judgment while encoding only a mechanical state.
+        risk_on = getattr(sig, "risk_on", "above") if sig else "above"
+        above = s.values >= ma.values
+        if risk_on is None:
+            good, bad = "tab:grey", "tab:grey"
+        else:
+            good, bad = "tab:green", "tab:red"
+        supportive = above if risk_on != "below" else ~above
+
+        ax.plot(s.index, s.values, linewidth=1.4, color="tab:blue")
+        ax.plot(ma.index, ma.values, linewidth=1.0, linestyle="--", color="grey")
+        ax.fill_between(s.index, s.values, ma.values, where=supportive,
+                        alpha=0.18, color=good, interpolate=True)
+        ax.fill_between(s.index, s.values, ma.values, where=~supportive,
+                        alpha=0.18, color=bad, interpolate=True)
+
+        pos = "ABOVE" if above[-1] else "BELOW"
+        mood = ("neutral" if risk_on is None
+                else ("SUPPORTIVE" if supportive[-1] else "CAUTION"))
+        title = sig.label if sig else nm
+        ax.set_title(f"{title}\n{pos} its {window}d avg  —  {mood}", fontsize=9)
+        if sig and sig.colour_note:
+            ax.set_xlabel(_wrap(sig.colour_note, 52), fontsize=7.5,
+                          color="dimgrey")
         ax.grid(alpha=0.25)
         ax.tick_params(labelsize=7)
+
     for j in range(len(have), nrow * ncol):
         axes[j // ncol][j % ncol].axis("off")
-    fig.suptitle("Context — displayed only, never scored "
-                 "(green = above trend, red = below)", fontsize=11)
-    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    fig.suptitle("Context — displayed only, never scored.  Shading = RISK-ON "
+                 "(green) vs CAUTION (red), which is not always 'above trend' "
+                 "— see each panel.", fontsize=10)
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
     return fig
 
 

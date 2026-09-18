@@ -59,10 +59,11 @@ class RatioSpec:
 
 @dataclass
 class BreadthSpec:
-    """A cumulative advance/decline line computed over `members`."""
+    """Smoothed advancing share over `members`.  Bounded, drift-free."""
     name: str
     members: Sequence[str]
     note: str = ""
+    smooth: int = 20
 
 
 def ratio_series(close: pd.DataFrame, spec: RatioSpec) -> pd.Series:
@@ -79,16 +80,45 @@ def ratio_series(close: pd.DataFrame, spec: RatioSpec) -> pd.Series:
     return (r / r.iloc[0] * 100.0).reindex(close.index)
 
 
+def advancing_share(close: pd.DataFrame, members: Sequence[str],
+                    smooth: int = 20, min_names: int = 20) -> pd.Series:
+    """
+    Share of `members` advancing each session, smoothed.  Bounded, no drift.
+
+    This replaces a cumulative A/D line, which was unusable here for a reason
+    worth recording.  The pool requires full history over the backtest window,
+    so every member is a confirmed sixteen-year survivor and the mean daily
+    advancing share is 51.0% rather than 50%.  Accumulating a persistently
+    positive quantity produces a series that rises forever: the cumulative line
+    sat above its own 200-day average on **86% of sessions**, against the ~50%
+    a mean-reverting measure would show.
+
+    That made "above its trend" a statement about survivorship rather than
+    about breadth, and made the rare "below" state look falsely informative -
+    a conditional resting on 32 independent observations out of 261.
+
+    A share is bounded in [0, 1] and cannot drift.  Its level is directly
+    interpretable (0.5 = as many names up as down) and its extremes mean the
+    same thing in 2012 as in 2026, which a cumulative line cannot promise.
+    """
+    cols = [c for c in members if c in close.columns]
+    if len(cols) < min_names:
+        raise ValueError(
+            f"Advancing share needs at least {min_names} names, got {len(cols)}")
+    r = close[cols].pct_change()
+    adv = (r > 0).sum(axis=1)
+    live = r.notna().sum(axis=1)
+    share = (adv / live.replace(0, np.nan)).where(live >= min_names)
+    return share.rolling(smooth, min_periods=max(2, smooth // 2)).mean()
+
+
 def advance_decline_line(close: pd.DataFrame, members: Sequence[str],
                          min_names: int = 20) -> pd.Series:
     """
-    Cumulative advance/decline line over `members`, rebased to 100.
+    DEPRECATED: cumulative A/D line, retained only to reproduce earlier output.
 
-    Each session contributes the net advancing share - (advancers - decliners)
-    divided by the number of names with data that day - which is then
-    accumulated.  Dividing by the daily count matters: the panel's membership
-    grows over time as names come into history, and an unnormalized net count
-    would drift purely because more names exist later.
+    Drifts upward on a survivorship-selected pool — see `advancing_share`, which
+    is what the live panel uses.  Do not add this to a new report.
     """
     cols = [c for c in members if c in close.columns]
     if len(cols) < min_names:
@@ -135,7 +165,7 @@ def augment(prices: PriceData,
         if spec.name not in monitors:
             raise ValueError(
                 f"Synthetic {spec.name!r} is not in monitor_symbols.")
-        s = advance_decline_line(close, spec.members)
+        s = advancing_share(close, spec.members, smooth=spec.smooth)
         close[spec.name] = s
         open_[spec.name] = s
         built.append(spec.name)
