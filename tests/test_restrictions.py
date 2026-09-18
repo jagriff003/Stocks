@@ -124,6 +124,28 @@ def test_name_key_does_not_over_match(description):
     assert match_names([description])[0] is None
 
 
+def test_tower_reits_are_blocked_by_symbol_as_well_as_industry():
+    """
+    The industry key alone would not bite.
+
+    liquid_pool.csv carries no industry column, so only the symbol and name
+    keys fire against it — which is where CCI and SBAC actually live.  The
+    industry key is the forward-looking half; these two are the half that
+    works today.
+    """
+    r = load_restrictions()
+    assert "telecom tower reits" in r["industries"]
+    for sym in ("AMT", "CCI", "SBAC"):
+        assert sym in r["symbols"]
+
+
+def test_telecom_operators_are_not_tower_reits():
+    """Blocking towers must not reach the carriers that rent them."""
+    assert match_names(["Verizon Communications Inc.",
+                        "T-Mobile US, Inc.",
+                        "AT&T Inc."]) == [None, None, None]
+
+
 def test_internet_services_industry_is_not_a_key():
     """
     Rejected deliberately: in the current screen it holds Cloudflare and

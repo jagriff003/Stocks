@@ -6,7 +6,10 @@ symbol,IRM,Iron Mountain,data-center-reit,DLR restricted list
 symbol,CDP,COPT Defense Properties,data-center-reit,DLR restricted list - identity unconfirmed in our data
 symbol,GDS,GDS Holdings,data-center-operator,DLR restricted list
 symbol,VNET,VNET Group,data-center-operator,carried over from the earlier list
+sub-industry,Telecom Tower REITs,,adjacent-infrastructure,tower REITs as a class - no row carries this label in the current screen
 symbol,AMT,American Tower,adjacent-infrastructure,DLR restricted list
+symbol,CCI,Crown Castle,adjacent-infrastructure,tower REIT - by symbol because the pool carries no industry column
+symbol,SBAC,SBA Communications,adjacent-infrastructure,tower REIT - by symbol because the pool carries no industry column
 symbol,DBRG,DigitalBridge Group,digital-infrastructure,DLR restricted list
 symbol,BXDC,Blackstone Digital Infrastructure Trust,digital-infrastructure,DLR restricted list
 symbol,BIP,Brookfield Infrastructure Partners,digital-infrastructure,DLR restricted list
