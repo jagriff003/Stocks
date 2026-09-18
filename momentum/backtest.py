@@ -20,6 +20,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
+from .sizing import SizingConfig, compute_weights
 from .config import (CorrelationConfig, ExecutionConfig, ExitConfig,
                      GraduatedVixConfig, VelocityConfig, VixRegimeConfig)
 from .correlation import RollingCorrelation, select_diversified
@@ -614,6 +615,69 @@ def _segment_return(symbols: List[str],
     return float(np.mean(rets)) if rets else 0.0
 
 
+def _segment_return_weighted(weights: pd.Series,
+                             start_prices: pd.Series,
+                             end_prices: pd.Series) -> float:
+    """
+    Weighted return between two price vectors, with cash for any shortfall.
+
+    Deliberately reduces to `_segment_return` when the weights are equal: names
+    with unusable prices are dropped and the REMAINING weights are renormalized
+    over the invested fraction, which for equal weights is exactly the mean of
+    the usable returns.  That identity is what lets 'equal' reproduce every
+    historical number, and it is asserted in tests rather than assumed.
+
+    Any weight not invested (vol_target de-risking) sits in cash at zero return
+    for the segment.  Cash is not free in reality — it earns the bill rate —
+    but crediting it would flatter a scheme that de-risks, and the risk-free
+    rate is already applied once in the Sharpe calculation.
+    """
+    if weights is None or len(weights) == 0:
+        return 0.0
+    gross = float(weights.sum())
+    usable, rets = [], []
+    for sym, w in weights.items():
+        p0 = start_prices.get(sym, np.nan)
+        p1 = end_prices.get(sym, np.nan)
+        if pd.notna(p0) and pd.notna(p1) and p0 != 0:
+            usable.append(w)
+            rets.append(p1 / p0 - 1)
+    if not usable:
+        return 0.0
+    invested = float(np.sum(usable))
+    if invested <= 0:
+        return 0.0
+    # Renormalize over what is actually tradable, then re-apply the gross
+    # exposure so a de-risked book stays de-risked.
+    weighted = float(np.dot(usable, rets)) / invested
+    return weighted * min(gross, 1.0) if gross < 1.0 else weighted
+
+
+def _trade_cost_weighted(old: pd.Series, new: pd.Series,
+                         execution: ExecutionConfig) -> float:
+    """
+    Slippage on the move from one weight vector to another.
+
+    This is the cost the symbol-based `_trade_cost` cannot see.  Under equal
+    weight, a rebalance that keeps the same names is free — the book is already
+    where it should be.  Under inverse-vol it is not: the weights move as the
+    volatility estimates move, so holding the same five names still costs money
+    to maintain.  Charging only for name changes would hand every weighted
+    scheme a subsidy the baseline does not get, which would be the single
+    easiest way to manufacture a fake improvement here.
+
+    One-way turnover is half the L1 distance between the vectors; each unit
+    traded pays the one-way slippage once.
+    """
+    if new is None or len(new) == 0:
+        return 0.0
+    if old is None or len(old) == 0:
+        return float(new.sum()) * execution.slippage_frac
+    idx = old.index.union(new.index)
+    l1 = float((new.reindex(idx).fillna(0.0) - old.reindex(idx).fillna(0.0)).abs().sum())
+    return l1 * execution.slippage_frac
+
+
 def _trade_cost(old: List[str], new: List[str], execution: ExecutionConfig) -> float:
     """
     Slippage cost of moving from `old` to `new`, as a fraction of portfolio value.
@@ -634,7 +698,9 @@ def _trade_cost(old: List[str], new: List[str], execution: ExecutionConfig) -> f
 def simulate_portfolio(targets: pd.Series,
                        close: pd.DataFrame,
                        open_: Optional[pd.DataFrame] = None,
-                       execution: Optional[ExecutionConfig] = None) -> PortfolioResult:
+                       execution: Optional[ExecutionConfig] = None,
+                       sizing: Optional["SizingConfig"] = None,
+                       scores: Optional[pd.DataFrame] = None) -> PortfolioResult:
     """
     Turn a series of target portfolios into a realized return stream.
 
@@ -653,8 +719,20 @@ def simulate_portfolio(targets: pd.Series,
       'next_close' fill at close(T+1) — a full extra day of lag.
       'same_close' fill at close(T).  Unachievable; retained only to quantify
                    how much of the historical CAGR came from assuming it.
+
+    sizing
+      How the chosen book is weighted.  None means equal weight, which is what
+      every historical result here was computed under.  The weighted path is
+      not a separate code path: equal weight is routed through the same
+      functions and reduces to the same arithmetic, so a sizing comparison
+      cannot accidentally be a comparison of two different engines.
+
+    scores
+      Composite scores, needed only by scheme='score_proportional'.  Weights
+      are taken from the SIGNAL date, never the fill date.
     """
     execution = execution or ExecutionConfig()
+    sizing = sizing or SizingConfig()
     mode = execution.execute_at
 
     if mode not in ("next_open", "next_close", "same_close"):
@@ -664,6 +742,7 @@ def simulate_portfolio(targets: pd.Series,
 
     dates = list(targets.index)
     held: List[str] = []
+    held_w: Optional[pd.Series] = None
     total_cost = 0.0
 
     records: List[Dict] = []
@@ -677,42 +756,48 @@ def simulate_portfolio(targets: pd.Series,
         signal = list(targets.loc[d_prev])
         close_prev, close_now = close.loc[d_prev], close.loc[d]
         cost = 0.0
+        # Weights are set from the signal date and then held until the book
+        # next changes, i.e. a daily rebalance back to the weights that were
+        # current at the last rotation.  Recomputing them daily would charge
+        # the weighted schemes a turnover cost the equal-weight baseline never
+        # pays, and would be testing a different strategy.
+        signal_w = compute_weights(signal, d_prev, close, sizing, scores)
 
         if mode == "same_close":
             if signal != held:
-                cost = _trade_cost(held, signal, execution)
-                held = signal
+                cost = _trade_cost_weighted(held_w, signal_w, execution)
+                held, held_w = signal, signal_w
                 if held:
                     holdings_history.append({"Date": d_prev, "Holdings": list(held)})
             if not held:
                 continue
-            gross = _segment_return(held, close_prev, close_now)
+            gross = _segment_return_weighted(held_w, close_prev, close_now)
 
         elif mode == "next_open":
             if signal != held:
                 if held:
-                    r1 = _segment_return(held, close_prev, open_.loc[d])
-                    r2 = _segment_return(signal, open_.loc[d], close_now)
+                    r1 = _segment_return_weighted(held_w, close_prev, open_.loc[d])
+                    r2 = _segment_return_weighted(signal_w, open_.loc[d], close_now)
                     gross = (1 + r1) * (1 + r2) - 1
                 else:
                     # Building the first book: no overnight leg to carry.
-                    gross = _segment_return(signal, open_.loc[d], close_now)
-                cost = _trade_cost(held, signal, execution)
-                held = signal
+                    gross = _segment_return_weighted(signal_w, open_.loc[d], close_now)
+                cost = _trade_cost_weighted(held_w, signal_w, execution)
+                held, held_w = signal, signal_w
                 holdings_history.append({"Date": d, "Holdings": list(held)})
             else:
                 if not held:
                     continue
-                gross = _segment_return(held, close_prev, close_now)
+                gross = _segment_return_weighted(held_w, close_prev, close_now)
 
         else:  # next_close — the whole day is held on the old book
             if held:
-                gross = _segment_return(held, close_prev, close_now)
+                gross = _segment_return_weighted(held_w, close_prev, close_now)
             else:
                 gross = None
             if signal != held:
-                cost = _trade_cost(held, signal, execution)
-                held = signal
+                cost = _trade_cost_weighted(held_w, signal_w, execution)
+                held, held_w = signal, signal_w
                 if held:
                     holdings_history.append({"Date": d, "Holdings": list(held)})
             if gross is None:

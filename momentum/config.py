@@ -17,6 +17,8 @@ import json
 from dataclasses import dataclass, field, asdict, is_dataclass
 from datetime import date
 from pathlib import Path
+
+from .sizing import SizingConfig
 from typing import List, Optional, Dict, Any
 
 
@@ -633,6 +635,10 @@ class ModelConfig:
     scoring: ScoringConfig = field(default_factory=ScoringConfig)
     velocity: Optional[VelocityConfig] = field(default_factory=VelocityConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
+    # How the selected book is weighted.  Default is equal weight, which is
+    # what every result before the sizing work was computed under, so a config
+    # that does not mention sizing behaves exactly as it always did.
+    sizing: SizingConfig = field(default_factory=SizingConfig)
     vix: Optional[VixRegimeConfig] = None
     correlation: Optional[CorrelationConfig] = field(default_factory=CorrelationConfig)
     exits: Optional[ExitConfig] = field(default_factory=ExitConfig)
@@ -688,6 +694,7 @@ class ModelConfig:
             "scoring": convert(self.scoring),
             "velocity": convert(self.velocity),
             "execution": convert(self.execution),
+            "sizing": convert(self.sizing),
             "vix": convert(self.vix),
             "correlation": convert(self.correlation),
             "exits": convert(self.exits),

@@ -79,7 +79,8 @@ def run_strategy(prices: PriceData, config: ModelConfig,
     )
 
     result = simulate_portfolio(
-        targets, prices.close, prices.open_, execution=config.execution
+        targets, prices.close, prices.open_, execution=config.execution,
+        sizing=config.sizing, scores=ranking_scores,
     )
     result.rebalance_history = rebalance_history
     return result
