@@ -1154,6 +1154,20 @@ anything using `dropna(axis=1)`.
 and correlate at **0.020** (50d). IAU and NEM are different sectors and
 correlate at **0.792**. The live report now leads with correlation.
 
+**Growing the book was free.** `_trade_cost` computed turnover as the share of
+the *old* book that left, so adding names charged nothing -- three names to
+five, all three kept, scored as zero turnover despite two buys and three trims.
+Found while making the cost model weight-aware for the sizing work (Track I).
+7 occurrences in the live config, 2.7bp of CAGR. Every result before
+2026-09-18 carried the subsidy.
+
+**Weight capping oscillated.** The per-position cap redistributed excess onto
+*all* other names including ones already at the cap, so capping C lifted B over
+the cap, capping B lifted C back over, and the answer depended on which
+iteration the loop happened to stop at -- a 3-name book could return a 41%
+position under a 35% cap. Capped names are now frozen and only the free ones
+share the remaining budget. Caught by a unit test, not by inspection.
+
 ---
 
 ## Universe health
@@ -1232,6 +1246,77 @@ Three measurement notes that shaped the build:
 
 ---
 
+## Track I -- position sizing: the null holds, and choosing costs money
+
+The prior going in was that weighting a 4-name momentum book would not make a
+systematic difference. It does not. Four schemes were run over the identical
+books on the identical dates -- selection held fixed, so any difference is
+sizing or it is noise.
+
+Out of sample, 3y train / 6m test, 24 windows, selecting on Sharpe:
+
+| scheme | OOS CAGR | OOS Sharpe | OOS MaxDD | OOS Calmar |
+|---|---|---|---|---|
+| equal | 15.68% | **0.66** | -23.00% | 0.68 |
+| score_proportional | 15.90% | 0.65 | -26.77% | 0.59 |
+| score_proportional cap35% | 15.26% | 0.62 | -26.08% | 0.59 |
+| inverse_vol cap35% | 13.92% | 0.61 | -19.86% | **0.70** |
+| inverse_vol (uncapped) | 13.01% | 0.59 | -20.72% | 0.63 |
+| vol_target 25% cap35% | 11.55% | 0.51 | -19.70% | 0.59 |
+| vol_target 15% cap35% | 7.39% | 0.30 | **-16.40%** | 0.45 |
+
+**Nothing beats equal weight on Sharpe.** The sharper version of the result is
+that *choosing* a scheme is worse than not choosing one: retuning every six
+months on training data returns 14.53% / 0.60, against 15.68% / 0.66 for equal
+weight left alone. The trainer picked the best-in-hindsight scheme in 25% of
+windows (14% is chance) and switched among five schemes across 24 windows.
+This is the same shape as the walk-forward result on `velocity_window` -- the
+training window does not predict the next one, so adapting adds turnover and
+noise.
+
+**score_proportional is the informative null.** Paired against equal weight on
+the same names and the same days, the daily difference is indistinguishable
+from zero (annualized -0.43%, t = -0.31, 3669 observations). This is a direct
+test of something Track F could not reach: the ranker's score *orders* names
+usefully, but the size of the gap between scores carries no usable information.
+Weighting by score is weighting by noise. It is worth noting that the weights
+really did differ -- mean absolute deviation from 1/N was 0.11, and the mean
+top weight 0.43 against 0.26 for equal weight -- so this is a null about the
+score, not a null about the book being too homogeneous to weight.
+
+**Drawdown is the one real separation, and it is not free.** vol_target at 15%
+cuts MaxDD from -23.00% to -16.40%, the largest reduction available, but gives
+up more CAGR than it saves: Calmar falls to 0.45 from 0.68. `inverse_vol
+cap35%` is the only scheme that improves on equal weight on any risk-adjusted
+measure -- Calmar 0.70 against 0.68 -- and the margin is well inside noise. If
+a future requirement is specifically to cap drawdown rather than to maximize
+risk-adjusted return, inverse-vol capped at 35% is where to start. Nothing here
+justifies moving off equal weight today.
+
+### Two engine changes this required
+
+**The cost model is now weight-aware.** Reweighting the same names was
+previously free, because cost was computed from name changes alone. Left alone,
+that would have handed every weighted scheme a subsidy the equal-weight
+baseline never received -- the easiest available way to manufacture a fake
+improvement in exactly this experiment.
+
+**That exposed a real bug.** The old `_trade_cost` measured turnover as the
+share of the *old* book that left: `len(set(old) - set(new)) / len(old)`.
+Growing the book therefore charged nothing. Going from three names to five
+while keeping all three scored as zero turnover, despite two purchases and
+three trims to pay for them. In the live config this fires 7 times across 3669
+sessions and costs 2.7bp of CAGR. Small, but it was a subsidy, and every
+historical result carried it.
+
+Equal weight is otherwise untouched: gross returns match the pre-weights
+arithmetic to 1.7e-18, checked against an independent replay of the old
+arithmetic rather than by comparing the refactored engine with itself.
+
+Reproduce: `python scripts/analyze_position_sizing.py`
+
+---
+
 ## Open questions
 
 1. **`velocity_window=5` is an in-sample choice.** Walk-forward proved re-tuning
@@ -1241,7 +1326,9 @@ Three measurement notes that shaped the build:
    every absolute number. Point-in-time snapshots now accumulate from
    2026-07-25 forward; unbiased backtesting becomes possible as they build up.
 3. **Equal-weight drift.** Returns assume a costless daily rebalance back to
-   equal weight. It slightly understates a runaway winner's contribution. Kept
+   equal weight. Track I tested *alternative target weights* under this same
+   convention and found nothing better; it did not test relaxing the
+   convention itself, which remains open. It slightly understates a runaway winner's contribution. Kept
    for comparability with all historical results, but it is an approximation.
    Note this biases the outsized-event analysis in the *reassuring* direction:
    a real book would let a winner run to more than its 1/N weight, so the true
