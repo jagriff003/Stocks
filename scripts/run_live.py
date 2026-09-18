@@ -80,6 +80,16 @@ def _print_book(record, prices, indent="    "):
             print(f"{indent}  ^ {worst['Symbol A']} and {worst['Symbol B']} are "
                   f"effectively one position.")
 
+    mons = record.get("Monitors") or {}
+    for sym, info in mons.items():
+        note = ""
+        if info["would_rank"] <= 4:
+            note = "  <- would be IN the book if it were tradable"
+        elif info["would_rank"] <= 10:
+            note = "  <- ranking high; breadth is narrowing"
+        print(f"{indent}monitor {sym}: score {info['score']:>6.3f}, "
+              f"would rank {info['would_rank']} of {info['of']}{note}")
+
     conc = portfolio_concentration(symbols, sector_map())
     if not conc.empty and (conc["Positions"] > 1).any():
         top = conc.iloc[0]

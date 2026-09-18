@@ -640,6 +640,7 @@ class ModelConfig:
     #   When set, supersedes `vix` entirely — the two regime systems are
     #   alternatives, not layers. Set `vix=None` alongside it to make that
     #   explicit in snapshots.
+    monitor_symbols: List[str] = field(default_factory=list)
     top_n: int = 4
     hold_days: int = 14
     min_data_days: int = 200
@@ -677,6 +678,7 @@ class ModelConfig:
             return obj
 
         return {
+            "monitor_symbols": list(self.monitor_symbols),
             "top_n": self.top_n,
             "hold_days": self.hold_days,
             "min_data_days": self.min_data_days,

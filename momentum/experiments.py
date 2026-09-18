@@ -348,6 +348,12 @@ def production_config(**overrides) -> ModelConfig:
             zscore_window=60, elevated_zscore=1.5, crisis_zscore=2.5,
             elevated_top_n=2,
         ),
+        # Scored for comparison, never held.  SH was documented as a monitor
+        # from the start and never enforced; the model bought it on 14.6% of
+        # book-days, in normal regimes, after declines that had largely
+        # finished.  Listed here as well as in universe.csv because the runtime
+        # reads config and the tooling reads the file.
+        monitor_symbols=["SH"],
         top_n=4, hold_days=14, min_data_days=200,
     )
     return _apply_overrides(config, overrides)
