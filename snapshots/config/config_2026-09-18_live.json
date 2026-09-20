@@ -1,0 +1,89 @@
+{
+  "_label": "live",
+  "_snapshot_date": "2026-09-18",
+  "correlation": {
+    "apply_above_vix": 25.0,
+    "apply_to_defensive": false,
+    "enabled": true,
+    "long_term_window": 200,
+    "max_correlation": 0.75,
+    "max_percentile": 0.85,
+    "method": "relative",
+    "min_positions": 2,
+    "on_infeasible": "relax",
+    "redundant_threshold": 0.7,
+    "window": 50
+  },
+  "execution": {
+    "execute_at": "next_open",
+    "risk_free_rate": 0.045,
+    "slippage_bps": 7.5,
+    "tax_rate_short_term": 0.0
+  },
+  "exits": {
+    "consecutive_days": 2,
+    "enabled": false,
+    "exit_rank_threshold": 6,
+    "max_exits_per_month": 0,
+    "min_hold_days": 0,
+    "min_score_gap": 0.5,
+    "mode": "rank",
+    "replacement": "immediate"
+  },
+  "graduated_vix": null,
+  "hold_days": 14,
+  "min_data_days": 200,
+  "monitor_symbols": [
+    "SH"
+  ],
+  "notes": "post-refactor baseline: fixed blend scale, realistic execution",
+  "rank_offset": 0,
+  "rank_offset_scope": "all",
+  "scoring": {
+    "derivative_window": 5,
+    "ma_long": 200,
+    "ma_short": 50,
+    "rel_strength_window": 20,
+    "rsi_window": 14,
+    "zscore_method": "rolling",
+    "zscore_window": 126
+  },
+  "sizing": {
+    "max_gross": 1.0,
+    "max_weight": 0.35,
+    "min_vol_obs": 20,
+    "scheme": "equal",
+    "target_vol": 0.15,
+    "vol_window": 60
+  },
+  "top_n": 4,
+  "velocity": {
+    "acceleration_weight": 0.0,
+    "acceleration_window": 5,
+    "best_rank_weight": 0.0,
+    "best_rank_window": 20,
+    "blend_normalization": "cross_sectional",
+    "level_weight": 0.7,
+    "min_level_threshold": -3.0,
+    "velocity_weight": 0.3,
+    "velocity_window": 5
+  },
+  "vix": {
+    "crisis_symbols": [
+      "SHY",
+      "TLT"
+    ],
+    "crisis_zscore": 2.5,
+    "defensive_symbols": [
+      "SHY",
+      "TLT",
+      "IAU"
+    ],
+    "elevated_top_n": 2,
+    "elevated_zscore": 1.5,
+    "roc_threshold": 0.3,
+    "roc_window": 5,
+    "use_roc_trigger": false,
+    "zscore_window": 60
+  }
+}

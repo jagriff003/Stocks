@@ -1,0 +1,47 @@
+Symbol,Sector,Role,Active,Note,AsOf,Source
+GOOGL,Communication Services,momentum,Y,Alphabet (Google),2026-09-18,manual quarterly screen
+META,Communication Services,momentum,Y,Meta,2026-09-18,manual quarterly screen
+LYV,Communication Services,momentum,Y,Live Nation (Entertainment),2026-09-18,manual quarterly screen
+AMZN,Consumer Discretionary,momentum,Y,Amazon (Broad Retail),2026-09-18,manual quarterly screen
+BKNG,Consumer Discretionary,momentum,Y,Booking Holdings (Leisure/Travel),2026-09-18,manual quarterly screen
+F,Consumer Discretionary,momentum,Y,Ford (Auto),2026-09-18,manual quarterly screen
+COST,Consumer Staples,momentum,Y,Costco (Merch),2026-09-18,manual quarterly screen
+PM,Consumer Staples,momentum,Y,Philip Morris (Tobacco),2026-09-18,manual quarterly screen
+KR,Consumer Staples,momentum,Y,Kroger (Food),2026-09-18,manual quarterly screen
+KO,Consumer Staples,momentum,Y,Coca-Cola (Beverage),2026-09-18,manual quarterly screen
+XOM,Energy,momentum,Y,Exxon Mobil,2026-09-18,manual quarterly screen
+MPC,Energy,momentum,Y,Marathon Petroleum (Refining),2026-09-18,manual quarterly screen
+JPM,Financials,momentum,Y,JP Morgan Chase,2026-09-18,manual quarterly screen
+V,Financials,momentum,Y,Visa (Transaction),2026-09-18,manual quarterly screen
+AXP,Financials,momentum,Y,American Express (Consumer),2026-09-18,manual quarterly screen
+STT,Financials,momentum,Y,State Street (Asset Servicing),2026-09-18,manual quarterly screen
+PGR,Financials,momentum,Y,Progressive (Insurance),2026-09-18,manual quarterly screen
+LLY,Health Care,momentum,Y,Eli Lilly (Pharma),2026-09-18,manual quarterly screen
+ABBV,Health Care,momentum,Y,AbbVie (Biotech),2026-09-18,manual quarterly screen
+GILD,Health Care,momentum,Y,Gilead Sciences (Biotech),2026-09-18,manual quarterly screen
+CAH,Health Care,momentum,Y,Cardinal Health (Distribution),2026-09-18,manual quarterly screen
+MCK,Health Care,momentum,Y,McKesson (Provider),2026-09-18,manual quarterly screen
+GE,Industrials,momentum,Y,GE Aerospace (Aero & Defense),2026-09-18,manual quarterly screen
+CAT,Industrials,momentum,Y,Caterpillar (Machinery),2026-09-18,manual quarterly screen
+JCI,Industrials,momentum,Y,Johnson Controls (Building Products),2026-09-18,manual quarterly screen
+PWR,Industrials,momentum,Y,Quanta Services (Infrastructure),2026-09-18,manual quarterly screen
+URI,Industrials,momentum,Y,United Rentals (Trading & Distribution),2026-09-18,manual quarterly screen
+NVDA,Information Technology,momentum,Y,NVIDIA (Semiconductors),2026-09-18,manual quarterly screen
+AAPL,Information Technology,momentum,Y,Apple (Hardware),2026-09-18,manual quarterly screen
+MSFT,Information Technology,momentum,Y,Microsoft (Software),2026-09-18,manual quarterly screen
+IBM,Information Technology,momentum,Y,IBM (Services),2026-09-18,manual quarterly screen
+STX,Information Technology,momentum,Y,Seagate (Data Storage),2026-09-18,manual quarterly screen
+LIN,Materials,momentum,Y,Linde (Chemical),2026-09-18,manual quarterly screen
+CRH,Materials,momentum,Y,CRH (Construction),2026-09-18,manual quarterly screen
+WELL,Real Estate,momentum,Y,Welltower (Health Care REIT),2026-09-18,manual quarterly screen
+SPG,Real Estate,momentum,Y,Simon Property Group (Retail REIT),2026-09-18,manual quarterly screen
+CBRE,Real Estate,momentum,Y,CBRE (Services),2026-09-18,manual quarterly screen
+CNP,Utilities,momentum,Y,CenterPoint Energy (Electric & Gas),2026-09-18,manual quarterly screen
+ULTA,Consumer Discretionary,momentum,Y,Ulta Beauty Inc,2026-09-18,manual quarterly screen
+LMT,Industrials,momentum,Y,Lockheed Martin Corp,2026-09-18,manual quarterly screen
+TSM,Information Technology,momentum,Y,TSMC (Semiconductors) - kept by hand; overlaps NVDA,2026-09-18,manual quarterly screen
+SPCX,Industrials,momentum,Y,"SpaceX - IPO 2026-06-12. Held out of the panel by load_data's 12-month data filter until ~mid-2027, then needs 200 scored days. Inert until then.",2026-09-18,manual quarterly screen
+SH,Hedge,monitor,Y,Short SPY (monitor; signal to stay out when above -0.1),2026-09-18,manual quarterly screen
+IAU,Defensive,defensive,Y,Gold ETF,2026-09-18,manual quarterly screen
+TLT,Defensive,defensive,Y,Long-Term Treasury ETF,2026-09-18,manual quarterly screen
+SHY,Defensive,defensive,Y,Short-Term Treasury ETF,2026-09-18,manual quarterly screen
