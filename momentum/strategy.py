@@ -47,7 +47,10 @@ def compute_scores(prices: PriceData, config: ModelConfig,
 
 def run_strategy(prices: PriceData, config: ModelConfig,
                  underlying_path: Optional[str] = None,
-                 verbose: bool = False) -> PortfolioResult:
+                 verbose: bool = False,
+                 ranking_override: Optional[pd.DataFrame] = None,
+                 slippage_by_symbol: Optional[pd.Series] = None
+                 ) -> PortfolioResult:
     """
     Score, select and simulate under `config`.
 
@@ -55,8 +58,25 @@ def run_strategy(prices: PriceData, config: ModelConfig,
     its `turnover` block reports what the strategy actually had to trade to get
     them.  Read those together: a variant that improves CAGR by trading three
     times as often has not necessarily improved anything.
+
+    ranking_override
+        Use this score panel for RANKING instead of the composite, while
+        leaving every other part of the system — eligibility, the level floor,
+        the regime overlay, the correlation filter, the hold clock, execution —
+        exactly as configured.  This is what makes a ranker comparison fair:
+        one input changes and nothing else can.  `base_scores` still comes from
+        the real composite, so the `min_level_threshold` floor keeps meaning
+        what it means and the two arms face an identical eligible pool.
+
+    slippage_by_symbol
+        Optional per-symbol one-way slippage as a fraction.  None keeps the
+        flat rate, which is what every historical result was computed under.
     """
     ranking_scores, base_scores, _ = compute_scores(prices, config, underlying_path)
+
+    if ranking_override is not None:
+        ranking_scores = ranking_override.reindex(
+            index=ranking_scores.index, columns=ranking_scores.columns)
 
     targets, rebalance_history = build_target_portfolios(
         ranking_scores,
@@ -81,6 +101,7 @@ def run_strategy(prices: PriceData, config: ModelConfig,
     result = simulate_portfolio(
         targets, prices.close, prices.open_, execution=config.execution,
         sizing=config.sizing, scores=ranking_scores,
+        slippage_by_symbol=slippage_by_symbol,
     )
     result.rebalance_history = rebalance_history
     return result

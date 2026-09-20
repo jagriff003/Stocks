@@ -108,6 +108,170 @@ attention.
 
 ---
 
+## 0d. Delisting simulation — bound the survivorship exposure on the wide pool
+
+**Added 2026-09-20.** The Track J backtest earns 24.35% CAGR at 0.65 Sharpe on
+635 liquid names against 14.81% for equal weight. The single largest reason not
+to believe it is that the pool was built in 2026 from names that still exist,
+and `pullback` buys drawdowns — so every dip in the sample was followed by a
+recovery, because the names whose dips were terminal are absent.
+
+This cannot be fixed without point-in-time data. It can be **bounded**, and the
+bound is the deliverable.
+
+### What has to be settled first (agreed 2026-09-20)
+
+The simulation is only as good as its model of what delisting does to a
+position, which is a factual question, not a modelling choice:
+
+- **Delisting is not one event.** Mergers and take-privates pay cash or
+  acquirer stock and are the most common exit for a healthy name — those are
+  neutral-to-positive and would *help* a momentum signal, since takeovers come
+  at a premium. Compliance delistings move to OTC and keep trading at a wide
+  spread. Chapter 11 usually cancels or massively dilutes equity. Chapter 7 is
+  a total loss.
+- So the simulation needs a **mixture**, not a single -100%. Getting the
+  mixture weights roughly right matters more than getting any one branch exact,
+  because the merger branch and the bankruptcy branch pull in opposite
+  directions.
+- **The loss is mostly before the event, not at it.** A name takes months to
+  travel from deficiency notice to delisting, and a rebalancing strategy with a
+  liquidity screen has several chances to exit. The exposure is holding through
+  the decline, which is the same exposure the backtest already prices for
+  surviving names that fell hard.
+
+### What to measure
+
+1. Historical delisting rate by size/liquidity decile, and the split between
+   merger, compliance and bankruptcy exits.
+2. Inject synthetic names at those rates into the pool, each carrying a
+   terminal path drawn from the matching branch. Let the strategy see them and
+   act under its normal rules, **including the liquidity screen** — the point
+   is to test whether the screen catches them, not to assume it cannot.
+3. Report edge decay as a function of assumed delisting rate, in the same form
+   as the breakeven-bps figure: *what rate would it take to erase this?*
+
+### What would count as an answer
+
+A delisting rate high enough to erase the edge that is clearly above the
+plausible historical rate for $10M+ ADV names. If the edge dies at a plausible
+rate, the wide-pool result is not usable and item 6 becomes mandatory before
+anything else.
+
+---
+
+## 0g. A sell-side framework — volatility-guided trailing stop
+
+**Added 2026-09-20 at James's request.** Everything in this repo is entry-side:
+the model ranks, buys the top N, and holds until the clock says rotate. There
+is no exit rule that responds to what a position is doing. At `top_n=8,
+hold=42` a name is held six weeks regardless of how it behaves in week two.
+
+Sequenced deliberately **after** the Track J score goes live, not before. It is
+a second change, and stacking it on an unproven selection change would make
+neither attributable.
+
+### What to build
+
+A trailing stop whose distance scales with the name's own volatility (e.g. k x
+ATR or k x rolling sigma), so a 35%-vol name is not stopped by normal noise
+while a 15%-vol name is not given 40% of room. Fixed-percentage stops are the
+obvious alternative and are known to do badly across a universe with this much
+dispersion in volatility — `flip_neg` picks range from utilities to
+semiconductors.
+
+### What to measure, and the standing prior against
+
+Track B tested rank-triggered exits and score-gap swaps and **rejected both**:
+losses scaled monotonically with turnover, -1.2pp to -10.5pp. A trailing stop
+is a different mechanism — it responds to price rather than to rank — so it is
+not the same test, but the burden is the same. Report:
+
+1. CAGR, Sharpe and drawdown against the no-stop baseline at `top_n=8,
+   hold=42`.
+2. Turnover added, against the 0.17pp-of-CAGR-per-1x bar.
+3. How often the stop fires and what the stopped name did afterwards — a stop
+   that mostly sells bottoms is worse than no stop.
+4. Subperiod stability, as with everything else.
+
+The honest framing: this is aimed at drawdown, and drawdown is not the
+selection criterion. It buys the ability to hold the model, which is worth
+paying some CAGR for, but the amount should be explicit rather than discovered.
+
+---
+
+## 0e. Drawdown-aware parameterization for the Track J score
+
+**Added 2026-09-20 at James's request.** Drawdown is not his selection
+criterion — it is how he judges the fortitude required to hold the model — but
+-56% is deeper than anything in this repo's history and is worth attacking
+directly rather than accepting as a by-product.
+
+The sweep already shows the lever: drawdown improves monotonically with book
+size (`top_n` 2/4/8/16 -> -81%/-70%/-57%/-47% at hold=5) at little CAGR cost
+above `top_n=8`. Untested: volatility targeting, a drawdown-triggered de-risk,
+or capping the weight of the highest-vol picks. Note Track A's finding that
+cutting exposure forfeits the overnight premium, which is the standing prior
+against any de-risking rule.
+
+---
+
+## 0f. Would switching between the two scores add anything?
+
+**Added 2026-09-20.** `pullback` and `flip_neg` win in different subperiods,
+which invites a rule that picks between them at each rebalance.
+
+**Test the premise before building anything.** Does trailing relative
+performance between the two scores predict next-period relative performance? If
+that autocorrelation is indistinguishable from zero, switching cannot work and
+the item closes for the cost of one short script. The prior against is strong:
+Track A rejected VIX switching, daily regime evaluation cost 2.53pp, and
+walk-forward found trailing-window selection beat a fixed config 13% of the
+time.
+
+Note also that `pullback` is `flip_neg` plus a `range_pos` term, so the two are
+correlated by construction and there may be little room between them. A fixed
+blend weight is a third model requiring no timing, and the sweep harness
+already handles it — try that before any switching machinery.
+
+---
+
+## 0c. Does the Track J signal survive outside the mega-caps it is absent from?
+
+**Added 2026-09-20**, out of FINDINGS Track J. The only ranker this repo has
+measured that clears |t| = 2 is `rank(12-1 month) - rank(3-month)` — buy strong
+twelve-month momentum that has recently pulled back. It earns **+0.99% per
+14-day period at t = 2.66** over a 747-name pool, and **+0.13% at t = 0.43**
+restricted to names above $50B, which is the range the live universe occupies.
+
+The edge is real in the measurement and unreachable from the current universe.
+That is the whole item.
+
+### What to measure
+
+1. **Fills.** The median pick is a $9.1B name and 10.7% are under $2B. Re-run
+   the edge with slippage scaled to spread and ADV instead of a flat 7.5 bps.
+   The repo's turnover bar is 0.17pp of CAGR per extra 1x of annual turnover;
+   a 4-name book drawn from 650 rotates near 100% per period.
+2. **Delisting.** The survivorship bound in Track J removes ex-post *winners*
+   and the edge survives. It cannot remove ex-post *losers*, because they are
+   not in the pool. This is item 6 again, and it is the binding constraint —
+   a dip-buying signal is exactly what a delisting-free pool flatters.
+3. **Subperiod.** P1 (2012-2016) is +0.03% at the live hold against +2.49% and
+   +1.10% after. Establish whether that is regime or construction before
+   anything is built on it.
+4. **Portfolio, last.** Only if 1-3 survive. Stage one deliberately stopped
+   short of simulating, because a backtest of an unvalidated signal at this
+   turnover mostly measures costs.
+
+### What would count as an answer
+
+An edge that holds above $10B with realistic fills, in all three subperiods,
+after a delisting-aware pool is available. Anything less is a reason to leave
+the universe alone — which is the current state.
+
+---
+
 ## 0b. Position sizing — the one dimension never tested
 
 **Raised 2026-09-17.** Every experiment in the record varies *what* to hold
@@ -183,6 +347,16 @@ five-year total return above 10%; the stated expectation, supported by the
 quintile table, is that such names are reversion candidates. Nothing resolves
 this. It decides whether names like TSLA should be dropped when their five-year
 return decays or held precisely because it has.
+
+> **Partly resolved 2026-09-20 by Track J.** On 747 names, long-run strength and
+> recent weakness are *both* the right side of the trade at once:
+> `rank(12-1 month) - rank(3-month)` earns +0.99% per 14-day period (t = 2.66),
+> and position in the 52-week range predicts positively at all six horizons.
+> So the screen's long-horizon filter and the reversion thesis are not in
+> conflict — the signal is a recent pullback *inside* an established uptrend,
+> not a recovery from a long decline. What stays unresolved is the TSLA case
+> specifically, because that is a decayed five-year return, which is the long
+> leg going bad rather than a short-leg pullback.
 
 **A candidate mechanical rule, from the TSLA case.** TSLA contributed +0.401 over
 2012-2021 and -0.011 over 2022-2026 across 96 position-days. "Drop a name whose

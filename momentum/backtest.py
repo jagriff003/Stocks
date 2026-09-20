@@ -654,7 +654,8 @@ def _segment_return_weighted(weights: pd.Series,
 
 
 def _trade_cost_weighted(old: pd.Series, new: pd.Series,
-                         execution: ExecutionConfig) -> float:
+                         execution: ExecutionConfig,
+                         rates: Optional[pd.Series] = None) -> float:
     """
     Slippage on the move from one weight vector to another.
 
@@ -668,14 +669,34 @@ def _trade_cost_weighted(old: pd.Series, new: pd.Series,
 
     One-way turnover is half the L1 distance between the vectors; each unit
     traded pays the one-way slippage once.
+
+    `rates`
+        Optional per-symbol one-way slippage, as a FRACTION (not bps).  A flat
+        7.5 bps is a reasonable assumption for a mega-cap and a fiction for a
+        $2B name, so any study that lets the book wander down the cap scale has
+        to charge per name or it is measuring a subsidy.  Symbols missing from
+        `rates` fall back to `execution.slippage_frac`.
+
+        Passing a uniform vector must reproduce the flat calculation exactly —
+        `tests/test_sizing.py` asserts that end to end through
+        `simulate_portfolio`, so this path cannot silently move any historical
+        number.
     """
     if new is None or len(new) == 0:
         return 0.0
+
     if old is None or len(old) == 0:
-        return float(new.sum()) * execution.slippage_frac
+        if rates is None:
+            return float(new.sum()) * execution.slippage_frac
+        r = rates.reindex(new.index).fillna(execution.slippage_frac)
+        return float((new * r).sum())
+
     idx = old.index.union(new.index)
-    l1 = float((new.reindex(idx).fillna(0.0) - old.reindex(idx).fillna(0.0)).abs().sum())
-    return l1 * execution.slippage_frac
+    delta = (new.reindex(idx).fillna(0.0) - old.reindex(idx).fillna(0.0)).abs()
+    if rates is None:
+        return float(delta.sum()) * execution.slippage_frac
+    r = rates.reindex(idx).fillna(execution.slippage_frac)
+    return float((delta * r).sum())
 
 
 def _trade_cost(old: List[str], new: List[str], execution: ExecutionConfig) -> float:
@@ -700,7 +721,9 @@ def simulate_portfolio(targets: pd.Series,
                        open_: Optional[pd.DataFrame] = None,
                        execution: Optional[ExecutionConfig] = None,
                        sizing: Optional["SizingConfig"] = None,
-                       scores: Optional[pd.DataFrame] = None) -> PortfolioResult:
+                       scores: Optional[pd.DataFrame] = None,
+                       slippage_by_symbol: Optional[pd.Series] = None
+                       ) -> PortfolioResult:
     """
     Turn a series of target portfolios into a realized return stream.
 
@@ -730,6 +753,17 @@ def simulate_portfolio(targets: pd.Series,
     scores
       Composite scores, needed only by scheme='score_proportional'.  Weights
       are taken from the SIGNAL date, never the fill date.
+
+    slippage_by_symbol
+      Optional per-symbol one-way slippage as a fraction.  None keeps the flat
+      `execution.slippage_bps` for every name, which is what every historical
+      result here was computed under.  See `_trade_cost_weighted`.
+
+      A Series is a fixed rate per symbol.  A DataFrame (dates x symbols) is a
+      rate that varies through time, read at the FILL date — which is what
+      liquidity actually does, and what lets a cost model use point-in-time
+      volume instead of today's.  Today's volume applied backwards would
+      undercharge every name that has since grown, which is most of them.
     """
     execution = execution or ExecutionConfig()
     sizing = sizing or SizingConfig()
@@ -739,6 +773,20 @@ def simulate_portfolio(targets: pd.Series,
         raise ValueError(f"Unknown execute_at: {mode!r}")
     if mode == "next_open" and open_ is None:
         raise ValueError("execute_at='next_open' requires open prices")
+
+    # A DataFrame of rates is read at the fill date; a Series is constant.
+    # Resolved once per cost point rather than reindexed per call, because the
+    # lookup is the only part of this that is not already vectorized.
+    _rates_frame = (slippage_by_symbol
+                    if isinstance(slippage_by_symbol, pd.DataFrame) else None)
+
+    def _rates_on(day):
+        if _rates_frame is None:
+            return slippage_by_symbol
+        if day in _rates_frame.index:
+            return _rates_frame.loc[day]
+        prior = _rates_frame.index[_rates_frame.index <= day]
+        return _rates_frame.loc[prior[-1]] if len(prior) else None
 
     dates = list(targets.index)
     held: List[str] = []
@@ -765,7 +813,8 @@ def simulate_portfolio(targets: pd.Series,
 
         if mode == "same_close":
             if signal != held:
-                cost = _trade_cost_weighted(held_w, signal_w, execution)
+                cost = _trade_cost_weighted(held_w, signal_w, execution,
+                                            _rates_on(d))
                 held, held_w = signal, signal_w
                 if held:
                     holdings_history.append({"Date": d_prev, "Holdings": list(held)})
@@ -782,7 +831,8 @@ def simulate_portfolio(targets: pd.Series,
                 else:
                     # Building the first book: no overnight leg to carry.
                     gross = _segment_return_weighted(signal_w, open_.loc[d], close_now)
-                cost = _trade_cost_weighted(held_w, signal_w, execution)
+                cost = _trade_cost_weighted(held_w, signal_w, execution,
+                                            _rates_on(d))
                 held, held_w = signal, signal_w
                 holdings_history.append({"Date": d, "Holdings": list(held)})
             else:
@@ -796,7 +846,8 @@ def simulate_portfolio(targets: pd.Series,
             else:
                 gross = None
             if signal != held:
-                cost = _trade_cost_weighted(held_w, signal_w, execution)
+                cost = _trade_cost_weighted(held_w, signal_w, execution,
+                                            _rates_on(d))
                 held, held_w = signal, signal_w
                 if held:
                     holdings_history.append({"Date": d, "Holdings": list(held)})

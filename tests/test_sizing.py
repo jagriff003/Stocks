@@ -239,3 +239,98 @@ def test_weights_do_not_peek_past_the_signal_date():
 def test_unknown_scheme_raises():
     with pytest.raises(ValueError, match="Unknown sizing scheme"):
         SizingConfig(scheme="magic")
+
+
+# --------------------------------------------------------------------------
+# Per-symbol slippage
+# --------------------------------------------------------------------------
+#
+# The per-name cost path exists so a book that wanders down the cap scale gets
+# charged what it would actually cost.  The risk it introduces is that every
+# historical number in FINDINGS was computed on the flat path, so the two must
+# agree exactly whenever the rates are uniform.  That is asserted here rather
+# than assumed, at the function AND through `simulate_portfolio`.
+
+def test_uniform_rates_reproduce_the_flat_cost_exactly():
+    ex = ExecutionConfig(slippage_bps=7.5)
+    old = pd.Series({"A": 0.5, "B": 0.5})
+    new = pd.Series({"B": 0.5, "C": 0.5})
+
+    flat = _trade_cost_weighted(old, new, ex)
+    uniform = pd.Series(ex.slippage_frac, index=["A", "B", "C", "D"])
+    assert _trade_cost_weighted(old, new, ex, uniform) == pytest.approx(flat, rel=1e-15)
+
+    # initial build, which takes the other branch
+    flat0 = _trade_cost_weighted(None, new, ex)
+    assert _trade_cost_weighted(None, new, ex, uniform) == pytest.approx(flat0, rel=1e-15)
+
+
+def test_missing_symbols_fall_back_to_the_flat_rate():
+    ex = ExecutionConfig(slippage_bps=10.0)
+    old = pd.Series({"A": 1.0})
+    new = pd.Series({"B": 1.0})
+    # B priced at 50 bps, A absent so it pays the configured 10 bps.
+    rates = pd.Series({"B": 0.0050})
+    expected = 1.0 * ex.slippage_frac + 1.0 * 0.0050
+    assert _trade_cost_weighted(old, new, ex, rates) == pytest.approx(expected)
+
+
+def test_expensive_names_cost_more_and_scale_linearly():
+    ex = ExecutionConfig(slippage_bps=7.5)
+    old = pd.Series({"A": 1.0})
+    new = pd.Series({"B": 1.0})
+    cheap = pd.Series({"A": 0.00075, "B": 0.00075})
+    dear = pd.Series({"A": 0.00075, "B": 0.00750})   # B ten times worse
+    c = _trade_cost_weighted(old, new, ex, cheap)
+    d = _trade_cost_weighted(old, new, ex, dear)
+    assert d > c
+    # only B's leg got more expensive, so the difference is exactly its delta
+    assert d - c == pytest.approx(1.0 * (0.00750 - 0.00075))
+
+
+def test_simulate_portfolio_uniform_rates_match_flat_end_to_end():
+    """
+    The check that actually protects FINDINGS: a full simulation with a uniform
+    per-name vector must return the identical return stream and total cost as
+    the flat path it replaces.
+    """
+    from momentum.backtest import simulate_portfolio
+
+    close = _panel()
+    open_ = close.shift(1).bfill()
+    dates = close.index
+    targets = pd.Series(
+        [["A", "B"] if (i // 14) % 2 == 0 else ["B", "C"] for i in range(len(dates))],
+        index=dates)
+    ex = ExecutionConfig(execute_at="next_open", slippage_bps=7.5)
+
+    flat = simulate_portfolio(targets, close, open_, execution=ex)
+    uniform = pd.Series(ex.slippage_frac, index=close.columns)
+    per_name = simulate_portfolio(targets, close, open_, execution=ex,
+                                  slippage_by_symbol=uniform)
+
+    assert per_name.total_cost == pytest.approx(flat.total_cost, rel=1e-12)
+    assert np.allclose(per_name.returns.to_numpy(),
+                       flat.returns.to_numpy(), equal_nan=True)
+    assert per_name.metrics["cagr"] == pytest.approx(flat.metrics["cagr"], rel=1e-12)
+
+
+def test_simulate_portfolio_charges_more_when_a_name_is_illiquid():
+    from momentum.backtest import simulate_portfolio
+
+    close = _panel()
+    open_ = close.shift(1).bfill()
+    dates = close.index
+    targets = pd.Series(
+        [["A", "B"] if (i // 14) % 2 == 0 else ["B", "C"] for i in range(len(dates))],
+        index=dates)
+    ex = ExecutionConfig(execute_at="next_open", slippage_bps=7.5)
+
+    flat = simulate_portfolio(targets, close, open_, execution=ex)
+    dear = pd.Series(ex.slippage_frac, index=close.columns)
+    dear["C"] = 0.01   # 100 bps on the name that rotates in and out
+    worse = simulate_portfolio(targets, close, open_, execution=ex,
+                               slippage_by_symbol=dear)
+
+    assert worse.total_cost > flat.total_cost
+    assert worse.metrics["cagr"] < flat.metrics["cagr"]

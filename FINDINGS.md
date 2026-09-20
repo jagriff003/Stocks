@@ -40,6 +40,9 @@ metrics and is subperiod-consistent.
 | Track G's risk claim | **retracted** | no decay trend; drawdown gap not resolvable on one history |
 | Track H — 100 random baskets | **does not generalize** | model beat its own basket in 2 of 100; edge -8.8pp |
 | Model health monitor | **built** | diagnostic, not a return change |
+| Track J — trend change, strength, room to run | **hypothesis rejected** | stage one; turn and headroom both wrong-signed |
+| Track J inverted — 12-1 momentum minus recent pullback | **lead, not a finding** | +0.99%/14d at t=2.66 on 747 names, but only below $50B cap |
+| Track J stage two — portfolio backtest | **new score wins** | +16.5pp ranking skill vs -3.4pp for live, on 635 names |
 
 Live model: **19.84% CAGR, 0.91 Sharpe, -19.23% max drawdown, Calmar 1.03**,
 net of realistic fills and costs. The honest like-for-like starting point was
@@ -1317,6 +1320,430 @@ Reproduce: `python scripts/analyze_position_sizing.py`
 
 ---
 
+## Track J — trend change, strength and room: the hypothesis is backwards, and the inverse is the first ranker in this repo to clear |t|=2
+
+**Run 2026-09-20.** `scripts/analyze_reversal_ic.py`, on `momentum/reversal.py`.
+Stage one only: this measures prediction, not a portfolio. Nothing here is in
+the live model.
+
+The proposal was to stop scoring where a stock *is* and start scoring whether it
+has **turned** — negative trend to positive — how strong that turn is relative
+to the universe, and how much **room** it has inside its 52-week range. Motivated
+by Track F's finding that the live composite predicts reversal at 5-63 days: if
+this universe reverses, trade the reversal deliberately rather than discover it
+as a sign error.
+
+Three terms, each self-normalizing before cross-sectional standardization:
+
+| term | definition |
+|---|---|
+| `turn_t` | t-statistic of the change in OLS log-price slope between two adjacent 60-day windows |
+| `flip` | `rank(3-month return) - rank(12-1 month return)` |
+| `strength_t` | t-statistic of the current 60-day slope |
+| `range_pos` | position in the trailing 52-week range, 0 at the low, 1 at the high |
+
+`range_pos` was deliberately exported in neutral form rather than as "headroom",
+because George & Hwang (2004) find *proximity* to the 52-week high predicts
+higher returns — the opposite sign to the room-to-run story. The weight was left
+free so the direction came off the measurement.
+
+### Both halves of the hypothesis came out backwards
+
+Measured on a 747-name pool (`random_pool.csv`), eligible pool ~650 per date,
+open-to-open forward returns:
+
+| signal | 5d | 14d | 21d | 42d | 63d | 126d |
+|---|---|---|---|---|---|---|
+| composite (live) | -0.0057 | -0.0066 | -0.0081 | -0.0088 | -0.0113 | -0.0013 |
+| `turn_t` | -0.0035 | -0.0061 | -0.0082 | -0.0140 | -0.0115 | -0.0096 |
+| `flip` | **-0.0149** | -0.0157 | -0.0151 | -0.0197 | -0.0137 | +0.0008 |
+| `strength_t` | +0.0006 | -0.0028 | -0.0040 | -0.0039 | -0.0027 | +0.0107 |
+| `range_pos` | +0.0103 | +0.0105 | +0.0097 | +0.0124 | +0.0173 | +0.0241 |
+
+**Turn is negative at every horizon.** A stock whose trend has just changed from
+falling to rising goes on to *underperform*. Both definitions agree, and adding
+strength does not rescue either.
+
+**Room is positive at every horizon on the wide pool**, rising with horizon to
++0.0241 at 126 days — six of six, under both eligibility arms. Nearness to the
+52-week high beats headroom: the literature's sign, not the intuitive one.
+Weighting the term as headroom (`b + room(-1)`) makes the combined score
+significantly *worse* (-0.0199, t = -2.05 at 42 days).
+
+On the 46-name universe the same term is positive at 5, 14 and 21 days and
+negative at 42, 63 and 126 — three of six, none significant. The direction is
+established on the wide pool only, and the universe neither supports nor
+contradicts it.
+
+### Inverted, `flip` is the strongest ranker this repo has measured
+
+Negating `flip` gives `rank(12-1 month) - rank(3-month)`: **buy strong 12-month
+momentum that has recently pulled back.** That is classic 12-1 momentum plus
+short-term reversal — two of the most replicated effects in the literature — so
+this is a recovery of a known result rather than a discovery, which is the
+reassuring direction for a signal found by flipping a sign.
+
+Per-period top-K edge over the eligible-pool mean, on non-overlapping periods:
+
+| arm | h | K | edge/period | t | P1 | P2 | P3 |
+|---|---|---|---|---|---|---|---|
+| `flip negated` | 14 | 8 | **+0.99%** | **2.66** | -0.05% | +2.04% | +0.97% |
+| `flip negated` | 63 | 8 | +6.41% | 3.94 | +2.41% | +7.16% | +9.88% |
+| composite (live) | 14 | 8 | +0.16% | 0.55 | +0.50% | -0.15% | +0.13% |
+| composite (live) | 63 | 8 | -0.76% | -0.84 | +1.84% | -0.63% | -3.62% |
+
+For scale: Track F measured the live ranker's edge at **+0.16% per 14-day period
+at K=1**, its best cut. On the wide pool `flip negated` earns +0.99% at K=8.
+
+**The production composite has no edge on the wide pool at all** — negative IC at
+every horizon, and its 63-day edge is *negative* and worsening by subperiod. That
+is Track H's non-generalization result arriving again by a different route.
+
+### Four reasons not to trade it yet
+
+**1. The first subperiod is empty.** P1 (2012-2016) is -0.05% at the live hold
+and is the weak segment in nearly every cut. The edge is a 2016-2026
+phenomenon in this sample. FINDINGS' standing bar is that a result winning the
+full sample by winning one segment is a fit; this wins two of three, with the
+first flat rather than negative — better than a fit, short of stable.
+
+**2. It dies in large caps.** Edge at the live hold, K=4, by today's market cap:
+
+| subset | edge/period | t |
+|---|---|---|
+| all 747 | +1.21% | 2.12 |
+| above $2B | +1.17% | 2.53 |
+| above $10B | +0.98% | 2.23 |
+| **above $50B** | **+0.13%** | **0.43** |
+
+The median pick is a $9.1B name against a $20.7B pool median, and the most-picked
+names were CELH, AEHR, CRK, BLFS, CYTK, AXON, INSM, ~~WULF~~, APPS, SRPT.
+**The edge is not in the range the live universe occupies.**
+
+Harvesting it means a different and much smaller-cap universe, where the 7.5 bps
+fill assumption is not credible and where the repo's turnover bar (0.17pp of
+CAGR per extra 1x of annual turnover) bites harder.
+
+(WULF is on the restricted list and is struck through above because that first
+measurement did not apply it — see "The compliance list costs nothing here".)
+
+**3. Survivorship is bounded but not removed.** The pool was built in 2026 from
+names liquid today, and "buy the dip in a strong performer" is the most exposed
+construction there is — every dip in the sample was followed by a recovery
+because the names whose dips did not recover are absent. Removing the names we
+know ex-post were the biggest winners does *not* collapse the edge:
+
+| variant | h=14, K=8 | t |
+|---|---|---|
+| all names | +0.99% | 2.66 |
+| ex top 10% realized winners | +1.12% | 3.00 |
+| ex top 20% | +0.68% | 1.93 |
+| ex top 30% | +0.66% | 1.93 |
+
+So it is not simply hindsight about which names won. But this bound says nothing
+about **delisted** names, which are not in the pool at all and cannot be added
+without point-in-time data. That remains TODO item 6, and it is the binding
+constraint on believing any magnitude here.
+
+**4. Multiplicity.** 90 (signal x horizon) cells were printed, about 45
+independent of sign; roughly 2.2 would clear |t|=2 by chance. Seven did. The
+arms are correlated and the horizons overlap, so that comparison is crude in
+both directions, but the honest reading is "a lead worth re-testing", not "an
+effect established".
+
+### The compliance list costs nothing here
+
+**Checked 2026-09-20**, after the first measurement was run on an unfiltered
+pool. `random_pool.csv` is a screener export, so restricted names are expected
+in it, and five were: **AMT, CCI, DLR, IRM, WULF**. WULF was among the ten
+most-picked names, so this was not a theoretical exposure — part of the first
+reported edge was earned on a name the account cannot trade.
+
+Re-measured with `momentum.restrictions.filter_screen` applied by symbol,
+industry and issuer name:
+
+| cut | with restricted | compliant only |
+|---|---|---|
+| 14d, K=4 | 1.206% (t 2.12) | 1.142% (t 2.03) |
+| 14d, K=8 | 0.986% (t 2.66) | **1.008% (t 2.79)** |
+| 63d, K=8 | 6.411% (t 3.94) | **6.413% (t 4.01)** |
+
+Restricted names were **1.31% of top-8 picks** (WULF 283, IRM 77, DLR 19,
+CCI 7). At K=8 the compliant edge is marginally *larger*. The result stands on
+a tradable pool, which is a stronger claim than the original.
+
+Both scripts now filter by default and the panel carries a hard `check_symbols`
+assertion, so this cannot silently regress.
+
+### Comparing horizons: per-period edges are not comparable
+
+A 6.41% edge per 63-day period and a 0.99% edge per 14-day period are figures
+over periods of different length. Normalized two ways — annualized edge, and
+the annualized information ratio of the edge itself, which also accounts for
+dispersion and is the cleaner comparison:
+
+| h | edge/period | N | ann. edge | **ann. IR** | composite ann. IR |
+|---|---|---|---|---|---|
+| 5 | 0.418% | 733 | 21.08% | 0.70 | -0.11 |
+| 14 | 1.008% | 262 | 18.15% | 0.73 | 0.17 |
+| 21 | 0.766% | 174 | 9.20% | 0.39 | 0.17 |
+| 42 | 2.696% | 87 | 16.18% | 0.63 | 0.34 |
+| 63 | 6.413% | 58 | 25.65% | **1.05** | -0.26 |
+| 126 | 4.744% | 29 | 9.49% | 0.37 | 0.19 |
+
+63 days is the best horizon on both measures, and **that should not be acted
+on**. The profile is non-monotone — 0.70, 0.73, 0.39, 0.63, 1.05, 0.37 — and a
+signal that genuinely improved with horizon would not dip at 21 days between 14
+and 42. Independent observations also collapse at the long end (58 at 63d, 29
+at 126d), so the peak carries a wide interval. Selecting 63 days because it is
+the maximum is the sweep-maximum trap wearing different clothes.
+
+The defensible statement is the flat one: **the edge is present at every horizon
+at an annualized IR of roughly 0.4 to 1.0, against roughly zero for the live
+composite.** That comparison does not depend on choosing a horizon, which is
+what makes it worth having.
+
+Do not read the `ann. edge` column as an achievable return. It is a gross
+cross-sectional edge; harvesting the 21% at h=5 would mean ~50 rebalances a
+year and the turnover would eat it.
+
+### The 46-name universe agrees in sign and cannot resolve anything
+
+Same signs on the two terms that matter — `flip negated` positive at five of six
+horizons, `turn_t` negative at all six — but no cell clears |t| = 1.7 under
+either eligibility arm (the largest is 1.66). `range_pos` is the exception: it
+splits three-three and agrees with the wide pool only at the short horizons.
+The minimum detectable IC at 80% power on 46 names is **0.040 at the live hold**
+against a measured 0.0118. The universe test is roughly three times too small to
+see an effect of the size the wide pool reports. It is consistent, not
+confirmatory, and it should not be cited either way.
+
+Worth noting anyway: top-4 edge at 14 days is +0.214% for `flip negated` against
++0.131% for the live composite, and at 63 days +1.167% against +0.178%.
+
+### The eligibility floor is a non-issue
+
+`min_level_threshold = -3.0` was expected to delete exactly the candidates a turn
+signal wants. It does not: 650.5 eligible names per date with the floor on
+against 652.2 with it off, and every IC in this study moves by less than 0.0003
+between the two arms. The concern was reasonable and is now measured and closed.
+
+### What this changes
+
+**Nothing in the live model.** Stage one measures prediction; no portfolio was
+simulated and no configuration changed.
+
+1. **"Has it turned?" is answered and the answer is no.** Both definitions
+   predict the wrong way at every horizon on 747 names. This should not be
+   re-proposed without a new mechanism — it is now a measured negative, not an
+   untested idea.
+2. **"Room to run" is answered and the answer is the opposite.** Nearness to the
+   52-week high is the direction with signal. If the screen or any future scoring
+   uses distance-from-high as a positive, that is now known to be backwards.
+3. **The live composite's non-generalization is confirmed twice over.** Zero-to-
+   negative IC on 747 names, and a 63-day edge that is negative and decaying by
+   subperiod. Track H said the model does not generalize to baskets it was not
+   built on; this says the *ranker* does not either.
+4. **The open question is now a universe question, not a signal question.** The
+   only measured edge lives below $50B, which is outside the universe. That
+   collides directly with the standing conclusion that remaining upside is in the
+   candidate set rather than in timing — and for once points at a specific,
+   testable change to the candidate set rather than at a parameter.
+
+### Reproducing
+
+```
+python scripts/analyze_reversal_ic.py                       # both pools, both floor arms
+python scripts/analyze_reversal_ic.py --pool wide --floor on   # the table above
+```
+
+Five checks run before anything prints, and the script exits 3 without reporting
+if any fails: the vectorized rolling OLS against `scipy.stats.linregress`
+(gap 2.3e-14); `range_pos` bounds and brute-force rolling min/max (gap 0.0);
+**no look-ahead**, by recomputing every term on a truncated panel and requiring
+the value at T to match (gap 0.0); the IC pipeline reproducing **Track F's
+published mean IC table** on Track F's own 52-symbol universe (worst gap
+0.00007 across all six horizons); and the wide-pool loader reproducing
+production `load_data` (max relative gap 1.8e-6 over 187,410 cells).
+
+The fourth is the one that matters most — it ties every number above to a
+published result rather than to a re-derivation. The fifth caught a real defect
+during construction: it first "passed" while returning `nan`, because a masked
+difference produced NaN and `nan > tol` is False.
+
+---
+
+## Track J, stage two — the portfolio comparison: the new score wins, and the live composite is worse than random off its own universe
+
+**Run 2026-09-20.** `scripts/analyze_reversal_backtest.py`. An information
+coefficient is not a P&L, so this puts both scores through identical portfolio
+machinery.
+
+### What makes the comparison fair
+
+One input changes. `run_strategy(ranking_override=...)` swaps the panel used for
+ranking while eligibility, the level floor, the regime overlay, the correlation
+filter, the hold clock, sizing and execution stay as configured — and the level
+floor still reads the real composite, so both arms face an identical eligible
+pool. That the override is neutral is asserted, not assumed: passing the real
+composite through it reproduces the un-overridden run to 0.0e+00 on both CAGR
+and the full return stream.
+
+The bar is not SPY and it is not the live model. Every pool carries Track F's
+four arms (ranked/random x overlay on/off) plus an equal-weight hold of the
+pool, because Track F established that owning the universe beats the model. The
+quantity that means something is **arm minus its own random null on the same
+pool** — ranking skill with the universe divided out.
+
+### The headline, on 635 liquid compliance-filtered names, realistic costs
+
+| arm (overlay off) | CAGR | Sharpe | Calmar | MaxDD | Vol | Turnover |
+|---|---|---|---|---|---|---|
+| **pullback** (`-flip` + `range_pos`) | **24.35%** | **0.65** | 0.43 | -56.48% | 30.50% | 1793% |
+| `flip negated` | 22.74% | 0.48 | 0.42 | -54.47% | 37.80% | 1482% |
+| equal-weight pool | 14.81% | 0.55 | 0.37 | -40.54% | 18.75% | 0% |
+| random_plain | 7.02% +/-4.59 | 0.11 | 0.14 | -51.67% | 23.36% | 2591% |
+| **composite (live)** | **3.14%** | **-0.05** | 0.06 | -53.59% | 27.70% | 2310% |
+
+Ranking skill over each arm's own null, gross:
+
+| score | plain | overlay |
+|---|---|---|
+| composite (live) | **-3.44%** | -5.33% |
+| `flip negated` | +16.19% | +9.00% |
+| **pullback** | **+16.52%** | +13.45% |
+
+**The production composite has negative ranking skill on this pool.** It does
+not merely fail to generalize — it picks worse than a random draw from the same
+eligible set, and pays 2310% annual turnover to do it. Track F said the ranker
+carries no information; Track H said the model does not generalize to baskets
+it was not built on. This is both, arriving together.
+
+### The room term reverses sign of usefulness with the pool
+
+On the 46-name universe, adding `range_pos` was clearly harmful: `pullback`
+12.34% against `flip negated` 20.38%. On 635 names it is the best arm, and it
+is better on *both* criteria — +1.6pp CAGR and Sharpe 0.48 -> 0.65, at lower
+volatility (30.5% against 37.8%).
+
+The mechanism is the obvious one and it is worth stating because it generalizes:
+**on a universe curated for momentum, every name sits near its 52-week high, so
+`range_pos` has almost no cross-sectional dispersion and contributes noise.**
+Across 635 diverse names it has real spread and real information. A term can be
+worthless on a narrow universe and valuable on a wide one without anything
+about the term changing.
+
+### Subperiods: the P1 hole does not survive into the portfolio
+
+Liquidity-costed, equal thirds:
+
+| arm | P1 | P2 | P3 |
+|---|---|---|---|
+| equal-weight pool | 12.09% | 19.62% | 12.88% |
+| composite (live) | 3.54% | 5.43% | 0.50% |
+| **pullback** | **17.51%** | 15.94% | **41.12%** |
+| `flip negated` | 11.18% | 32.65% | 25.38% |
+
+Positive in all three, and `pullback` beats equal weight in P1 by 5.4pp. The
+"2012-2016 is empty" worry came from the IC measurement on the unfiltered pool
+and does not reproduce here. Two measurements disagreeing about which segment is
+weak is evidence that the period effect is unstable, not that a period is bad.
+
+### It improves as fills get worse
+
+| uniform bps | live | `flip negated` | delta |
+|---|---|---|---|
+| 7.5 | 5.14% | 20.21% | +15.08% |
+| 15 | 1.55% | 17.32% | +15.77% |
+| 30 | -5.27% | 11.73% | +17.00% |
+| 60 | -17.62% | 1.31% | +18.93% |
+
+No uniform slippage level erases the advantage, because the new score trades
+*less* than the composite. That is the opposite of every rejected track in this
+repo, all of which lost on turnover.
+
+### The parameter surface: read the shape
+
+20 cells, `top_n` x `hold`, both arms, liquidity-costed. New score CAGR:
+
+| top_n \ hold | 5 | 14 | 21 | 42 | 63 | spread |
+|---|---|---|---|---|---|---|
+| 2 | 14.1 | 23.6 | **35.6** | 23.0 | 14.1 | **21.4pp** |
+| 4 | 16.2 | 16.6 | 24.9 | 15.0 | 22.0 | 10.0pp |
+| **8** | 20.3 | 20.4 | 22.0 | **22.6** | 20.4 | **2.3pp** |
+| 16 | 17.8 | 19.1 | 17.9 | 18.2 | 19.1 | 1.4pp |
+
+`top_n=2, hold=21` is the grid maximum at 35.6% and must not be acted on: that
+row swings 21pp across holds, which is a spike. `top_n=8` is a plateau — 20-23%
+at every hold, Sharpe 0.54-0.62, drawdown -41% to -57%.
+
+Robustness across the grid: the new score beats live on CAGR in **95%** of
+cells, clears CAGR-and-Sharpe-together in **80%**, median advantage **+11.4pp**,
+worst cell -5.4pp. That is a far stronger claim than any single backtest figure.
+
+**The inherited `top_n=4, hold=14` is one of the worst cells for this score**
+(16.6% / 0.35 / -63.5%). Every turnover figure above is an artifact of settings
+chosen for a different score on a different universe.
+
+### The chosen configuration
+
+**`top_n=8, hold=42`** — 22.6% CAGR, 0.62 Sharpe, -49.9% drawdown, rebalancing
+six times a year instead of eighteen. Selected because the surrounding row is
+flat, not because the cell is high, which is the only defensible way to pick off
+a grid given walk-forward's finding that trailing-window re-tuning costs 3pp.
+
+Drawdown falls monotonically with book size (-81/-70/-57/-47% at hold=5 for
+`top_n` 2/4/8/16) at no CAGR cost above 8, which is what makes 8 rather than 4
+the right answer for a signal ranking hundreds of names.
+
+### Costs, and the engine change they required
+
+`simulate_portfolio` now accepts `slippage_by_symbol`, a Series or a
+dates x symbols frame read at the fill date. `momentum/liquidity.py` builds the
+frame: half-spread plus square-root market impact, from **point-in-time**
+trailing dollar volume rather than today's, so a name is charged what it would
+have cost on the day. Today's volume applied backwards would undercharge every
+name that has since grown — most survivors in a pool built today, and precisely
+the names this signal picks.
+
+On the 635-name pool it prices the least-liquid ADV quintile at 18.9 bps and the
+most liquid at 4.6, median 9.0 against the flat 7.5 assumption.
+
+A uniform per-name vector must reproduce the flat path exactly, or every
+historical number in this document would silently move. That is asserted in
+`tests/test_sizing.py` end to end through `simulate_portfolio`, and again inside
+the run.
+
+### What this does not establish
+
+**Survivorship, which is now the only thing standing between this and a live
+trial.** The pool is names liquid in 2026 and `pullback` buys drawdowns, so
+every dip in the sample was followed by a recovery — the names whose dips were
+terminal are absent. The ex-winner bound survived (Track J stage one), but
+delisted names cannot be added without point-in-time data. TODO 0d.
+
+Also outstanding: volatility is 30.5% against equal weight's 18.75%, so a real
+share of the CAGR is leverage-like; drawdown at -56% is deeper than anything in
+this repo's history; and the null here is 15 trials, coarse though the gaps are
+large relative to the +/-4.6pp spread.
+
+### Reproducing
+
+```
+python scripts/analyze_reversal_backtest.py --pool universe
+python scripts/analyze_reversal_backtest.py --pool screened --trials 15
+python scripts/analyze_reversal_backtest.py --pool screened --trials 3 --sweep
+```
+
+Four gates run before any arm prints, and the script exits 3 without reporting
+if any fails: the live universe reconciles with production through this script's
+panel (gap 0.0000%); uniform per-name slippage equals the flat path (0.0e+00);
+`ranking_override` is neutral (0.0e+00, return streams equal over 3,669 days);
+and the cost model is monotone in liquidity (ADV quintile medians 18.9 -> 4.6
+bps, Spearman -0.97).
+
+---
+
 ## Open questions
 
 1. **`velocity_window=5` is an in-sample choice.** Walk-forward proved re-tuning
@@ -1339,3 +1766,12 @@ Reproduce: `python scripts/analyze_position_sizing.py`
    directionless, challengers arrive too late, acceleration is noise. If there
    is more return available, it is likely in the universe (better candidates)
    rather than in the timing of trades among current candidates.
+
+5. **The one signal that measured positive is out of reach of the universe.**
+   Track J found `rank(12-1 month) - rank(3-month)` earns +0.99% per 14-day
+   period at t = 2.66 on a 747-name pool — and +0.13% at t = 0.43 above $50B
+   market cap, which is where the live universe lives. Item 4 said remaining
+   upside is in the candidate set; this is the first measurement that says so
+   with a direction attached, and it points somewhere the current screen does
+   not go. Whether that is worth following depends on TODO 6 (survivorship) and
+   on whether a smaller-cap book survives realistic fills — neither is answered.
