@@ -285,6 +285,7 @@ windows leaks nothing. 95 windows pooled across 3 rotation phases:
 | ~~`hold=40`~~ | **Decided 2026-09-20.** 8 whole weeks, fixed rebalance weekday. Verified: `pullback` 21.46% -> 20.93%, inside noise. |
 | ~~which score~~ | **Decided: `pullback`.** See below. |
 | allocation size | **Open.** The out-of-sample result (t = 1.34 against live) argues for a partial allocation rather than a wholesale switch. |
+| tranching | **k=4 recommended.** Four sleeves on staggered clocks, one rotating every 10 sessions (biweekly). Phase spread collapses 11.62pp -> 2.53pp, Sharpe 0.71 -> 0.80, median CAGR +0.63pp, turnover unchanged. ~17 names on an average day. |
 | ~~correlation filter~~ | **Decided: absolute 0.70, every rebalance.** Superseded the earlier "keep the inherited gating" decision once the absolute rule was tested — the two are different rules and the first test conflated them. |
 
 ### Why `pullback` rather than `flip_neg`
