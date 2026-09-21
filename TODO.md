@@ -685,11 +685,21 @@ Much of the early divergence is model-version drift rather than error: the 2026
 scoring fixes mean today's code does not reproduce the book the spring's code
 recommended. The convergence toward 62% by September tracks those fixes landing.
 
-**What this promotes.** Going from ~25% book compliance to 90% is worth more
-than the entire Track J signal improvement — which took a full day to measure,
-argue and validate, and is smaller than the compliance gap. That reorders this
-whole file: the next unit of effort belongs on *following the book*, not on
-improving the score.
+**Corrected 2026-09-20:** the early trades were IN model — they followed the
+model running at the time, and predate the config snapshots, so there is no
+record of what it said. This is version drift, not indiscipline.
+
+**Which makes the +18.04% YTD backtest circular.** Today's config exists because
+the old one did badly over exactly this period. Backtesting it over 2026
+measures a configuration chosen with knowledge of the outcome; that return was
+never available. The same caution applies to Track J, developed against data
+through September 2026.
+
+**What this promotes.** A stable model and a recorded book are worth more than
+further signal work. +12.80pp of the modelled year came from names never held,
+and the snapshots that would have made the early year auditable did not exist
+until 2026-07-25. Keep snapshotting, and treat any backtest over a period whose
+results drove the config as in-sample.
 
 **Still missing** for a complete answer: a starting balance and the Roth
 account, without which the account's true return cannot be computed. Overlap and

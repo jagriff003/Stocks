@@ -45,7 +45,7 @@ metrics and is subperiod-consistent.
 | Track J stage two — portfolio backtest | **partly superseded** | look-ahead screen; see the correction |
 | Track J corrected — per-date screen, phase, out-of-sample | **real but noisy** | beats live at 100% of phases; t=1.34 by window, not significant |
 | Correlation cap, absolute 0.70 every rebalance | **adopted** | +2.72pp CAGR, Sharpe 0.64->0.78, and t vs live 1.34->2.61 out of sample |
-| Live-vs-account reconciliation | **the gap is not the model** | book overlap averaged 25%; +12.8pp of the modelled year came from names never held |
+| Live-vs-account reconciliation | **the gap is model-version drift** | overlap averaged 25%; the +18% YTD backtest is circular — today's config was chosen *because* 2026 went badly |
 
 Live model: **19.84% CAGR, 0.91 Sharpe, -19.23% max drawdown, Calmar 1.03**,
 net of realistic fills and costs. The honest like-for-like starting point was
@@ -1917,17 +1917,29 @@ the account.
 something other than the model was traded. Those are opposite conclusions and
 the distinction was unavailable until the trade log arrived.
 
-**Much of the early divergence is model-version drift, not error.** The scoring
-defects fixed during 2026 mean today's code does not reproduce the book the
-spring's code recommended, so a 0/4 overlap in January compares the account
-against a retrospective book that never existed at the time. The convergence to
-62% by September tracks the fixes landing.
+**The divergence is model-version drift, and the trades were IN model.**
+Corrected 2026-09-20 on James's account of what happened: the early-year trades
+followed the model as it ran at the time. They were not discretionary deviations
+— they simply predate the config snapshots, so there is no record of what the
+model said then, and today's code does not reproduce it. A 0/4 January overlap
+compares the account against a retrospective book that never existed.
 
-**The largest available improvement in this repo is not a better signal.** Going
-from ~25% book compliance to 90% is worth more than the entire Track J gain —
-the whole of which was measured, argued and validated across a full day's work,
-and which is smaller than the compliance gap. A better score that is not
-followed is worth nothing, and this is the first hard evidence of that here.
+**Which makes the +18.04% YTD backtest circular.** The current live model exists
+*because* the old one performed poorly over this very period: the scoring
+defects were found and fixed in response to 2026's results. Backtesting today's
+code over 2026 therefore measures a configuration selected with knowledge of the
+outcome. The +18.04% was never available to anyone, and the realised result is what running
+a model in real time actually produced.
+
+This is the cleanest example in the repo of why "read deltas, not levels" is
+written at the top of this document — and a caution that applies to Track J
+too, which was developed today against data running through September 2026.
+
+**What it does not license** is the comfortable reading that the gap is
+somebody else's fault. Whether the book gets followed is still the variable with
+the largest coefficient here: +12.80pp of the modelled year came from names
+never held. The difference is that the fix is a stable model and a recorded
+book, not more discipline.
 
 ### What is still unmeasurable
 
