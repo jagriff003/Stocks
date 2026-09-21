@@ -57,7 +57,7 @@ from momentum.config import snapshot_config
 from momentum.data import PriceData
 from momentum.experiments import production_config
 from momentum.liquidity import (LiquidityConfig, apply_tradable, dollar_volume,
-                                slippage_panel, tradable_mask)
+                                realized_vol, slippage_panel, tradable_mask)
 from momentum.pool_snapshot import coverage, snapshot_pool
 from momentum.restrictions import check_symbols
 from momentum.restrictions import describe as describe_restrictions
@@ -381,6 +381,15 @@ def main() -> int:
     slip_now = slippage_panel(prices.close, volume, lcfg,
                               top_n=cfg.top_n).loc[session] * 10_000
 
+    # Daily volatility, for sizing a stop.
+    #
+    # A stop expressed in percent is a different rule for every name: -8% is
+    # noise on a 4%/day biotech and a thesis break on a 1%/day utility. Sizing
+    # it in units of the name's own daily volatility is what makes one number
+    # mean the same thing across a book that spans both.
+    vol_daily = realized_vol(prices.close, lcfg.vol_window)
+    vol_now = vol_daily.loc[session]
+
     ranks_now = score_now.rank(ascending=False, method="min")
 
     def show(names, title, at=None):
@@ -402,11 +411,11 @@ def main() -> int:
             rank_at = score_at.rank(ascending=False, method="min")
             px_at = prices.close.loc[at]
             hdr = (f"    {'symbol':<8}{'price':>10}{'since buy':>11}"
-                   f"{'rank@buy':>10}{'rank now':>10}{'score now':>11}"
-                   f"{'$vol (M)':>10}{'est bps':>9}")
+                   f"{'rank@buy':>9}{'rank now':>9}{'vol/day':>9}"
+                   f"{'peak':>8}{'vols off':>10}{'$vol (M)':>10}{'bps':>6}")
         else:
             hdr = (f"    {'symbol':<8}{'price':>10}{'score':>8}{'rank':>6}"
-                   f"{'$vol (M)':>11}{'est bps':>9}")
+                   f"{'vol/day':>9}{'$vol (M)':>11}{'est bps':>9}")
         print(hdr)
         print("    " + "-" * (len(hdr) - 4))
 
@@ -419,15 +428,28 @@ def main() -> int:
                 r0, r1 = rank_at.get(n, float("nan")), ranks_now.get(n, float("nan"))
                 if r0 == r0 and r1 == r1 and r1 - r0 >= 50:
                     drift = "  <- decayed"
+                # Peak since entry, and how far below it the name sits
+                # measured in its own daily volatilities. That last number is
+                # the one a trailing stop should key on.
+                path = prices.close[n].loc[at:session].dropna() \
+                    if n in prices.close.columns else pd.Series(dtype=float)
+                peak = float(path.max()) if len(path) else float("nan")
+                off = (p1 / peak - 1) if peak and peak == peak else float("nan")
+                v = float(vol_now.get(n, float("nan")))
+                vols_off = (off / v) if v and v == v and v > 0 else float("nan")
+                mark = drift
+                if vols_off == vols_off and vols_off <= -3.0:
+                    mark = "  <- %.1f vols off peak" % vols_off
                 print(f"    {n:<8}{p1:>10.2f}{move:>11.1%}"
-                      f"{r0:>10.0f}{r1:>10.0f}"
-                      f"{score_now.get(n, float('nan')):>11.2f}"
+                      f"{r0:>9.0f}{r1:>9.0f}{v:>9.2%}"
+                      f"{off:>8.1%}{vols_off:>10.1f}"
                       f"{adv_now.get(n, float('nan'))/1e6:>10.0f}"
-                      f"{slip_now.get(n, float('nan')):>9.1f}{drift}")
+                      f"{slip_now.get(n, float('nan')):>6.1f}{mark}")
             else:
                 print(f"    {n:<8}{close_now.get(n, float('nan')):>10.2f}"
                       f"{score_now.get(n, float('nan')):>8.2f}"
                       f"{ranks_now.get(n, float('nan')):>6.0f}"
+                      f"{float(vol_now.get(n, float('nan'))):>9.2%}"
                       f"{adv_now.get(n, float('nan'))/1e6:>11.0f}"
                       f"{slip_now.get(n, float('nan')):>9.1f}")
 

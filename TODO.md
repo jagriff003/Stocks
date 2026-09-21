@@ -419,6 +419,45 @@ obvious alternative and are known to do badly across a universe with this much
 dispersion in volatility — `flip_neg` picks range from utilities to
 semiconductors.
 
+### FIRST EVIDENCE, 2026-09-20 — no stop level helps, and the data cannot say otherwise
+
+`scripts/analyze_stop_levels.py`. For every position-day the model held, the
+excursion below its peak since entry measured in the name's own daily
+volatility, against the return from that point to the end of the hold:
+
+| vols below peak | position-days | return from here | hit rate |
+|---|---|---|---|
+| -6 to -5 | 1,079 | **+2.38%** | 56% |
+| -5 to -4 | 1,514 | **+2.49%** | 58% |
+| -4 to -3 | 2,180 | **+2.21%** | 57% |
+| -3 to -2.5 | 1,457 | +1.79% | 56% |
+| -0.5 to 0 | 10,233 | +1.90% | 57% |
+
+**Every depth is followed by a positive return, and the deep ones are BETTER
+than sitting at the peak.** A stop at -3 vols would have sold 22% of all
+position-days and forgone +2.26% each time. Pooled at every threshold from -1.5
+to -6 the verdict is "hold".
+
+That is the reversion premise working as designed: for a dip-buying score a deep
+excursion is the entry signal arriving late, not a thesis break.
+
+**The caveat is bigger than the result.** This pool contains no names that
+failed to recover — it was built in 2026 from survivors, and TODO 0d established
+there are no terminal declines in it. A stop hedges catastrophic non-recovery,
+and catastrophic non-recovery is the one thing this data structurally cannot
+contain. So the finding is narrower than "no stop": *within the recoverable
+universe*, no vol multiple identifies a non-recovery point, because there are
+none to identify.
+
+Two further limits: position-days overlap heavily so the t-statistics are
+inflated (the signs and the monotonicity are what carry), and this conditions on
+a state without modelling what the freed slot would buy — a stop could still pay
+if the replacement beats +2.3%.
+
+**What would change the answer:** point-in-time data with delisted securities,
+which is TODO 0d's real fix. Until then a stop is a judgement about tail risk
+this repo cannot measure, not a parameter it can optimise.
+
 ### A re-entry blackout is part of the rule, not a refinement
 
 **Raised by James 2026-09-20.** A stop that sells a name must hold it out for N
