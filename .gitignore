@@ -13,5 +13,10 @@ __pycache__/
 !universe.csv
 !snapshots/universe/*.csv
 
+# Pool snapshots are the point-in-time record that closes the survivorship
+# question (TODO 0d).  They are only worth anything if they accumulate, so they
+# are source rather than output and must show up in diffs.
+!snapshots/pool/*.csv
+
 # Compliance list must be tracked: changes to it have to show in a diff.
 !restricted.csv

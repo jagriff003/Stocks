@@ -344,6 +344,27 @@ obvious alternative and are known to do badly across a universe with this much
 dispersion in volatility — `flip_neg` picks range from utilities to
 semiconductors.
 
+### A re-entry blackout is part of the rule, not a refinement
+
+**Raised by James 2026-09-20.** A stop that sells a name must hold it out for N
+periods afterwards. Without that, the score re-ranks the same name the next
+rebalance and — because the stop fired on a price *drop*, which is exactly what
+`−flip` rewards — the model buys straight back into what just burned it. The
+stop and the signal would be working against each other by construction:
+`pullback` is a dip-buying score, so a stopped-out name becomes *more*
+attractive the moment it is sold.
+
+This makes the blackout load-bearing rather than hygiene. Test N over a short
+grid (say 1, 2, 3 rotations) and report:
+
+- how often a stopped name would have been re-bought at the next rebalance
+  without the blackout, and what that round trip cost;
+- whether the blackout's benefit is the avoided re-entry or just reduced
+  turnover — those are different mechanisms and only the first justifies the
+  rule;
+- N too long starts excluding good names for stale reasons, so expect an
+  interior optimum and be suspicious if the best N is the largest tested.
+
 ### What to measure, and the standing prior against
 
 Track B tested rank-triggered exits and score-gap swaps and **rejected both**:

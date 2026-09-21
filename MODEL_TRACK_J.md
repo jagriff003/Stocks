@@ -7,6 +7,8 @@ tags: [model, momentum, reversal, track-j]
 
 # Track J model — pullback-in-uptrend
 
+**Selected score: `pullback`. Selected hold: 40 sessions (8 whole weeks).**
+
 > [!warning] Not live
 > This documents a **candidate**. The live model is still the RSI/MA composite
 > described in [[FINDINGS]].
@@ -25,7 +27,7 @@ tags: [model, momentum, reversal, track-j]
 
 Buy stocks with **strong twelve-month momentum that have recently pulled back**,
 preferring those **near their 52-week high**, from a wide pool of liquid US
-equities. Hold eight names, equal weight, rotating every 42 trading days. The
+equities. Hold eight names, equal weight, rotating every 40 trading days. The
 signal is deliberately *not* a trend-change detector — that was the original
 hypothesis and it measured backwards (see [[FINDINGS]], Track J). What survived
 is the inverse: long-run strength plus short-run weakness, which is classic 12-1
@@ -160,7 +162,7 @@ Everything is configurable; nothing below is hard-coded at a call site.
 | parameter | value | why |
 |---|---|---|
 | `top_n` | **8** | plateau, not peak: CAGR varies only 2.3pp across holds at 8, against 21.4pp at `top_n=2` |
-| `hold_days` | **42** | flat region; cuts rebalances from 18/yr to 6/yr |
+| `hold_days` | **40** | exactly 8 weeks, so the rebalance lands on a fixed, schedulable weekday instead of drifting two weekdays per cycle. Verified against 42: `pullback` moves 21.46% -> 20.93% CAGR, inside noise. |
 | sizing | equal weight | Track I found no scheme beats it |
 | `vix` overlay | **off** | costs 3.4pp CAGR and 0.06 Sharpe on this score |
 | correlation filter | inherited | ⚠️ untested at this book/pool size — [[TODO]] 0h.4 |
@@ -263,10 +265,30 @@ windows leaks nothing. 95 windows pooled across 3 rotation phases:
 
 | | |
 |---|---|
-| `hold=40` instead of 42 | 40 is exactly 8 weeks, so rebalances land on a fixed, schedulable weekday instead of drifting two weekdays per cycle. The sweep shows `top_n=8` is a plateau across holds, so this should cost nothing. **Recommended.** |
-| which score | `flip_neg` leads on CAGR (26.56% vs 21.46%), `pullback` on Sharpe-per-unit-drawdown and on out-of-sample win rate (64% vs 62%). They swapped places when `top_n`/`hold` changed, so the ordering is not settled. |
-| allocation size | The out-of-sample result argues for a partial allocation rather than a wholesale switch. |
-| correlation filter | Inherited and untested at 8-from-635 — [[TODO]] 0h.4. |
+| ~~`hold=40`~~ | **Decided 2026-09-20.** 8 whole weeks, fixed rebalance weekday. Verified: `pullback` 21.46% -> 20.93%, inside noise. |
+| ~~which score~~ | **Decided: `pullback`.** See below. |
+| allocation size | **Open.** The out-of-sample result (t = 1.34 against live) argues for a partial allocation rather than a wholesale switch. |
+| correlation filter | **Open, next up.** Inherited and untested at 8-from-635 — [[TODO]] 0h.4. |
+
+### Why `pullback` rather than `flip_neg`
+
+`flip_neg` leads on headline CAGR at one configuration. `pullback` wins on
+everything that speaks to whether the number will repeat:
+
+| | `flip_neg` | `pullback` |
+|---|---|---|
+| CAGR at `hold=42` | 26.56% | 21.46% |
+| CAGR at `hold=40` | **19.11%** | **20.93%** |
+| Sharpe at `hold=40` | 0.47 | **0.64** |
+| Calmar at `hold=40` | 0.38 | **0.50** |
+| out-of-sample win rate vs live | 62% | **64%** |
+| CAGR with best 1% of days removed | 3.35% | **5.68%** |
+| max drawdown | −50.0% | **−41.8%** |
+
+A two-session change in hold costs `flip_neg` 7.5pp of CAGR and 0.22 of Sharpe.
+`pullback` moves half a point. Three independent measures — hold sensitivity,
+out-of-sample consistency, outlier dependence — all favour the same one, and
+the headline-CAGR advantage of `flip_neg` does not survive any of them.
 
 ## Related
 
