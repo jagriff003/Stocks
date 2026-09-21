@@ -97,6 +97,8 @@ def main() -> int:
     p.add_argument("--min-price", type=float, default=5.0)
     p.add_argument("--account", type=float, default=100_000.0)
     p.add_argument("--max-corr", type=float, default=0.70)
+    p.add_argument("--max-phases", type=int, default=8,
+                   help="starting phases sampled per tranche count")
     p.add_argument("--no-cache", action="store_true")
     args = p.parse_args()
 
@@ -166,7 +168,15 @@ def main() -> int:
         # A k-tranche book still has a phase: WHERE the whole set starts. There
         # are `step` distinct configurations, and the spread across them is what
         # is left of the phase bet after tranching.
-        starts = list(range(step))
+        # Sampled, not exhaustive: estimating the spread needs a handful of
+        # starting phases, not all of them, and each one is a full-history run
+        # with the correlation filter engaged at every rebalance.
+        all_starts = list(range(step))
+        if args.max_phases and len(all_starts) > args.max_phases:
+            idx = np.linspace(0, len(all_starts) - 1, args.max_phases)
+            starts = [all_starts[int(round(i))] for i in idx]
+        else:
+            starts = all_starts
         lcfg_k = LiquidityConfig(account_notional=args.account)
         # Each sleeve's order is account/(k*top_n), so the cost model is given
         # the effective divisor rather than the single-book one.
