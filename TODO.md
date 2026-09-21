@@ -187,6 +187,13 @@ Only point-in-time data with delisted securities settles this (CRSP, Norgate,
 Sharadar). Short of buying it, the free option is a forward record — and it has
 to be started deliberately, because it is worthless retroactively:
 
+> **OPERATING REMINDER: run `run_live_trackj.py` WITHOUT `--no-snapshot`.**
+> Every example invocation written during development used that flag to avoid
+> polluting the record while testing, which makes it easy to copy by accident.
+> The runner now prints a loud banner when the flag is used. A rotation that
+> goes unrecorded is a permanent hole -- there is no way to reconstruct which
+> names were tradable on a past date once the provider has moved on.
+
 **Snapshot the eligible POOL at every rebalance,** the way
 `snapshots/universe/` already snapshots the universe. Names that later vanish
 from the snapshots are precisely the delistings this study could not see, and

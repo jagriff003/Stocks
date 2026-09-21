@@ -150,7 +150,9 @@ def main() -> int:
     p.add_argument("--no-cache", action="store_true",
                    help="force a fresh download; use this for a real run")
     p.add_argument("--no-snapshot", action="store_true",
-                   help="skip the pool snapshot (do not use on a real run)")
+                   help="skip the pool snapshot. FOR TESTING ONLY -- the "
+                        "snapshot is the point-in-time record that closes "
+                        "TODO 0d and it cannot be reconstructed later.")
     p.add_argument("--no-plots", action="store_true")
     p.add_argument("--save-charts", metavar="DIR", default=None,
                    help="write charts as PNGs instead of opening windows")
@@ -562,7 +564,20 @@ def main() -> int:
           f"{' — ' + ', '.join(sorted(overlap)) if overlap else ''}")
 
     # --- the point-in-time record ---
-    if not args.no_snapshot:
+    if args.no_snapshot:
+        # Loud, because the cost of skipping is invisible today and permanent.
+        # The snapshots are the only asset that can ever answer the
+        # survivorship question, and a rotation that goes unrecorded is a hole
+        # in that record forever -- there is no way to reconstruct which names
+        # were tradable on a past date once the data provider has moved on.
+        print()
+        print("!" * 100)
+        print("  NO POOL SNAPSHOT WRITTEN (--no-snapshot).")
+        print("  If this was a real run, that rotation is now permanently")
+        print("  missing from the point-in-time record (TODO 0d). Re-run")
+        print("  without the flag.")
+        print("!" * 100)
+    else:
         path = snapshot_pool(
             tradable=tmask.loc[session],
             dollar_volume=adv_now, price=close_now, scores=score_now,
