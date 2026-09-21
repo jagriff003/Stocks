@@ -160,6 +160,50 @@ def slippage_panel(close: pd.DataFrame, volume: pd.DataFrame,
     return bps / 10_000.0
 
 
+def tradable_mask(close: pd.DataFrame, volume: pd.DataFrame,
+                  min_adv: float = 10e6, min_price: float = 5.0,
+                  config: Optional[LiquidityConfig] = None) -> pd.DataFrame:
+    """
+    Per-date boolean: could this name be traded as of this date?
+
+    POINT-IN-TIME, AND THAT IS THE ENTIRE POINT.  The obvious implementation —
+    take each name's median dollar volume over the whole sample and keep the
+    ones above a floor — is look-ahead of the worst kind: a name earns its place
+    in the 2010 cross-section because of volume it had in 2020.  It also
+    silently reintroduces survivorship, since the names that stayed liquid are
+    exactly the ones that did well.
+
+    Applied by masking the SCORE panel rather than by dropping columns, so a
+    name that falls below the floor becomes unpickable on those dates and
+    becomes pickable again if it recovers — which is what a screen re-run each
+    rebalance actually does.
+
+    The price floor is the blunt proxy for the main continued-listing rule, and
+    it is the filter most likely to duck a compliance delisting before it
+    happens.
+    """
+    config = config or LiquidityConfig()
+    adv = dollar_volume(close, volume.reindex_like(close), config.adv_window)
+    return (adv >= min_adv) & (close.astype(float) >= min_price)
+
+
+def apply_tradable(scores: pd.DataFrame, mask: pd.DataFrame,
+                   always: Optional[set] = None) -> pd.DataFrame:
+    """
+    Blank a score panel wherever the name is not tradable that day.
+
+    `always` names (the defensive sleeve) bypass the screen — they enter the
+    book by regime rule rather than on rank, and they are ETFs whose liquidity
+    is not in question.
+    """
+    m = mask.reindex(index=scores.index, columns=scores.columns).fillna(False)
+    if always:
+        for sym in always:
+            if sym in m.columns:
+                m[sym] = True
+    return scores.where(m)
+
+
 def summarize(panel: pd.DataFrame, label: str = "") -> pd.DataFrame:
     """Per-symbol median cost in bps, for reporting what the model assumed."""
     med = (panel.median() * 10_000).rename("median_bps")

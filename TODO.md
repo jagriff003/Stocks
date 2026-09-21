@@ -158,6 +158,170 @@ plausible historical rate for $10M+ ADV names. If the edge dies at a plausible
 rate, the wide-pool result is not usable and item 6 becomes mandatory before
 anything else.
 
+### Where it landed, 2026-09-20 — RUN, INCONCLUSIVE, ACCEPTED AS A KNOWN RISK
+
+Run at rates 0/4/10% with a survivor control arm. Results:
+
+- The edge over owning the pool is **flat across rates**: +7.98%, +7.74%,
+  +8.27%. Absolute CAGR degrades only modestly, 21.5% -> 19.3%.
+- **The screen earns its keep.** With realistic starting prices, 37% of
+  cause-based delistings stop being tradable a median **95-100 sessions** ahead
+  of the event. That is the mitigation actually in place.
+- **The cost decomposition is not usable.** It comes out positive — delisting
+  appearing to *help* — and the control arm shows why: injecting 497 immortal
+  clones alone cost 6pp, while the merger branch added more back. Both artifacts
+  exceed the effect being measured.
+
+Root cause of the remaining unreliability: synthetic names are circularly
+shifted clones of survivors, which gives realistic volatility but destroys
+co-movement with the market — a rolled name does not crash in 2020 with
+everyone else, so it does not behave like a real pool member.
+
+**Decision (James, 2026-09-20): stop here.** There is not enough evidence to
+action anything beyond the screens already programmed in. The model goes
+forward carrying this as a known, unquantified risk rather than a blocker.
+
+### What actually closes it, and the one cheap thing to start now
+
+Only point-in-time data with delisted securities settles this (CRSP, Norgate,
+Sharadar). Short of buying it, the free option is a forward record — and it has
+to be started deliberately, because it is worthless retroactively:
+
+**Snapshot the eligible POOL at every rebalance,** the way
+`snapshots/universe/` already snapshots the universe. Names that later vanish
+from the snapshots are precisely the delistings this study could not see, and
+after a few years the snapshots ARE the point-in-time dataset. Costs one CSV
+per rebalance and nothing else. Pair it with item 2 (live-vs-simulated
+reconciliation) so both records accumulate together from day one.
+
+---
+
+## 0h. Pre-production bug hypotheses for the Track J model — triage list
+
+**Added 2026-09-20.** Not performance risks. These are ways the model could say
+something that **does not happen in practice** — divergences between what the
+backtest computes and what a live run would face. Ordered by how badly each
+would mislead, not by likelihood. Most will be noise; the point is that they are
+written down before go-live rather than diagnosed after.
+
+### High — would change the book, silently
+
+1. **Rotation phase is worth MORE at `hold=42`, not less.** FINDINGS records
+   that phase is worth ~3.2pp of CAGR at `hold=14`. Going to 42 means six
+   rebalances a year instead of eighteen, so *which* 42-day cycle you happen to
+   start on matters more, not less. The backtest reports one phase. **Re-run the
+   phase sensitivity at `hold=42` before go-live** — this is the one most likely
+   to make live results diverge from backtest for a reason nobody suspects.
+
+2. **The eligibility floor still reads the OLD composite.** `min_level_threshold`
+   is applied to `base_scores`, which is the production composite. That was
+   correct for the comparison — both arms had to face an identical pool — but
+   shipping `flip_neg` while keeping a floor derived from a score we have just
+   shown carries negative ranking skill is incoherent. Decide: drop the floor,
+   or re-derive it from the new score. Note stage one measured the floor as
+   near-inert (650.5 vs 652.2 eligible names), so dropping it is probably free.
+
+3. **Tie-breaking is arbitrary and `flip` is built from ranks.** `flip` is a
+   difference of two cross-sectional rank panels, so exact ties are genuinely
+   possible rather than measure-zero. `rank(method="first")` then breaks them by
+   column order, i.e. effectively by ticker alphabetically. Quantify how often
+   ties reach the top 8, and break them on something defensible.
+
+4. **The correlation filter is untested at this book size and pool size.** It
+   was set up for 4 names drawn from 46. At 8 from 635, `on_infeasible='relax'`
+   may silently alter the book or the effective size. Verify what it actually
+   does before it does it live.
+
+### Medium — real but bounded
+
+5. **Adjusted closes are restated.** The panel is fully adjusted, so a dividend
+   or split tomorrow rewrites yesterday's prices. `range_pos` reads a 52-week
+   high off that restated series, which is not the high that was observable at
+   the time. Small, but it is exactly the "backtest saw something live cannot"
+   class. Measure by comparing `range_pos` computed on adjusted vs unadjusted
+   closes.
+
+6. **Data reliability scales with the panel.** At 46 names a missing series is
+   obvious; at 635 the chance of at least one bad or stale series on any given
+   day is far higher, and the model would rank on it without complaint. The
+   existing unsettled-tail guard checks the panel's last date, not per-name
+   staleness. Add a per-name freshness check.
+
+7. **The live screen must match the backtest screen exactly.** Trailing median
+   dollar volume over `adv_window`, plus the price floor. A live implementation
+   that uses a vendor's "average volume" field instead would be a different
+   filter, and the divergence would be invisible.
+
+8. **`slippage_panel` takes `top_n` to size the order.** If the live book size
+   ever differs from the one the cost panel was built with, the modelled costs
+   are wrong in a direction nobody notices.
+
+### Low — worth a look, unlikely to matter
+
+9. Corporate actions landing mid-hold, where an adjustment lag could produce a
+   spurious `flip` reading for a day.
+10. Defensive sleeve and VIX overlay are currently *off* in the recommended
+    configuration; `run_live.py` prints regime and defensive-posture blocks that
+    would become misleading rather than wrong. Cosmetic, but it is the kind of
+    thing that erodes trust in the output.
+
+### How to work this list
+
+Each item wants the same treatment the repo already uses: an assertion that
+fails loudly, or a measurement with a stated tolerance. Prefer a test in
+`tests/` over a note here. Items 1 and 2 should be closed before any live
+trade; the rest can be triaged after.
+
+---
+
+## 0i. Two ways to stop betting on a single rotation phase
+
+**Added 2026-09-20.** The phase test found the new score's CAGR spans 13.16% to
+23.35% across rebalance offsets — a **10.19pp** spread at `hold=42`, against
+~3.2pp at `hold=14`. The equal-weight arm's spread is 0.71pp, so this is purely
+a rotation artifact, not anything about the data. In live trading you get one
+phase and cannot know in advance whether it is a good one.
+
+Two independent ways to stop taking that bet, raised by James:
+
+### 1. Staggered tranches
+
+Split capital into k sleeves started on different offsets, each rotating on its
+own `hold`-day clock. The book becomes the union, and realized CAGR approaches
+the phase *median* instead of a single draw.
+
+Attractive because it **makes no signal claim at all** — it is pure variance
+reduction, and nothing in FINDINGS argues against it. Two things to check
+rather than assume:
+
+- **Turnover per dollar should be unchanged**, since each sleeve trades 1/k of
+  the capital k times as often. Confirm it, because if true this is nearly free.
+- **Slippage may actually improve**: `slippage_panel` scales impact with order
+  size, and three smaller orders cost less than one large order in the same name.
+  So tranching could be slightly *accretive* on cost while cutting phase risk.
+- Position count goes from 8 to 8k unless `top_n` is cut per sleeve. Decide
+  which, and note the sleeves will overlap in names.
+
+### 2. Exit rules that break the clock
+
+A trailing stop (or any exit condition) takes a position out mid-hold and frees
+the slot for the next-best name — so positions naturally desynchronize and the
+book stops rotating in lockstep. Phase diversification arrives as a side effect
+of the exit rule rather than as its purpose.
+
+**This one carries a prior against it.** Track B tested rank-triggered exits and
+score-gap swaps and rejected both: losses scaled monotonically with turnover,
+-1.2pp to -10.5pp. "Exit and replace with next-best" is structurally close to
+what was rejected there. Two things differ — Track B ran on the 46-name
+universe with the old composite at `hold=14`, and the motivation here is
+variance reduction rather than signal improvement — but the burden is the same,
+and it should be tested as [[TODO#0g. A sell-side framework — volatility-guided trailing stop|0g]]
+with the phase benefit measured separately from the return effect.
+
+Sequence: do (1) first. It is cheaper, it has no prior against it, and if it
+resolves the phase problem on its own then (2) only has to justify itself on
+drawdown.
+
 ---
 
 ## 0g. A sell-side framework — volatility-guided trailing stop

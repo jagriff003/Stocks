@@ -77,7 +77,8 @@ sys.path.insert(0, str(REPO_ROOT))
 from momentum.backtest import build_target_portfolios, simulate_portfolio
 from momentum.data import PriceData, load_data
 from momentum.experiments import production_config
-from momentum.liquidity import LiquidityConfig, dollar_volume, slippage_panel
+from momentum.liquidity import (LiquidityConfig, apply_tradable,
+                                dollar_volume, slippage_panel, tradable_mask)
 from momentum.metrics import calculate_performance_metrics
 from momentum.reversal import ReversalConfig, build_terms, composite
 from momentum.strategy import compute_scores
@@ -391,7 +392,17 @@ def main() -> int:
 
     # Liquidity screen for the 'screened' pool.
     p.add_argument("--min-adv", type=float, default=10e6,
-                   help="median trailing dollar volume floor, in dollars")
+                   help="trailing dollar volume floor, in dollars")
+    p.add_argument("--min-price", type=float, default=5.0,
+                   help="price floor; proxy for the continued-listing rule")
+    p.add_argument("--level-floor", choices=["on", "off"], default="off",
+                   help="apply min_level_threshold, which reads the OLD "
+                        "composite. Dropped by decision 2026-09-20: gating a "
+                        "new score on one with negative ranking skill is "
+                        "incoherent, and stage one measured the floor as "
+                        "near-inert (650.5 vs 652.2 eligible names). Applied "
+                        "to BOTH arms either way, so the comparison stays "
+                        "matched.")
     # Cost model.
     p.add_argument("--account", type=float, default=100_000.0)
     p.add_argument("--impact-k", type=float, default=0.8)
@@ -409,6 +420,7 @@ def main() -> int:
     print("=" * 112)
     print("TREND-CHANGE SCORE vs THE LIVE COMPOSITE - portfolio comparison")
     print(f"Started {datetime.now():%Y-%m-%d %H:%M:%S}")
+    print(f"level floor {args.level_floor}")
     print(f"top_n {cfg.top_n}   hold {cfg.hold_days}d   "
           f"{args.trials} random trials   account ${args.account:,.0f}")
     print("=" * 112)
@@ -470,18 +482,24 @@ def main() -> int:
                                 columns=prices.close.columns)
         adv = dollar_volume(prices.close, volume, lcfg.adv_window)
 
+        # PER-DATE, not a full-sample cut.  Selecting columns on a
+        # whole-sample median is look-ahead — a name would earn its place in
+        # the 2010 cross-section because of volume it had in 2020 — and it
+        # quietly reintroduces survivorship, since the names that stayed liquid
+        # are the ones that did well.  The screen instead blanks the score on
+        # the days a name fails it, exactly as re-running the screen each
+        # rebalance would.
+        trade_mask = None
         if pool_name == "screened":
-            liquid = adv.median()
-            keep = [c for c in prices.close.columns
-                    if (c in defensive) or (liquid.get(c, 0) >= args.min_adv)]
-            dropped = len(prices.close.columns) - len(keep)
-            print(f"  liquidity screen: median trailing dollar volume >= "
-                  f"${args.min_adv/1e6:.0f}M keeps {len(keep)} of "
-                  f"{len(prices.close.columns)} names ({dropped} dropped)")
-            prices = PriceData(close=prices.close[keep], open_=prices.open_[keep],
-                               spy=prices.spy, vix=prices.vix)
-            volume = volume[keep]
-            adv = adv[keep]
+            trade_mask = tradable_mask(prices.close, volume, args.min_adv,
+                                       args.min_price, lcfg)
+            per_date = trade_mask.sum(axis=1)
+            ever = int(trade_mask.any().sum())
+            print(f"  liquidity screen (per date): ADV >= "
+                  f"${args.min_adv/1e6:.0f}M and price >= ${args.min_price:.0f}"
+                  f" -> {per_date.mean():.0f} tradable names per date "
+                  f"({per_date.min():.0f}-{per_date.max():.0f}), "
+                  f"{ever} ever tradable of {len(prices.close.columns)}")
 
         print(f"  panel: {prices.close.shape[1]} tickers, "
               f"{prices.index[0]:%Y-%m-%d} to {prices.index[-1]:%Y-%m-%d}")
@@ -493,6 +511,25 @@ def main() -> int:
             terms, replace(rcfg, turn_weight=-1.0, strength_weight=0.0,
                            room_weight=1.0), "flip").reindex_like(ranking)
 
+        # Kept unmasked for the override-neutrality check: that check asserts
+        # the plumbing changes nothing, so it has to compare the same score
+        # `run_strategy` computes internally.  Handing it the screened panel
+        # would compare the screen against no screen and fail for a reason that
+        # has nothing to do with the plumbing.
+        ranking_raw = ranking
+
+        # TODO 0h.2, decided 2026-09-20: DROP the level floor.  It is applied
+        # to `base_scores`, which is the production composite -- a score this
+        # very run shows has negative ranking skill on this pool.  Passing None
+        # switches it off in `_PortfolioBuilder.eligible` without touching
+        # anything else.  Applied to both arms so the comparison stays matched.
+        base_arm = base if args.level_floor == "on" else None
+
+        if trade_mask is not None:
+            ranking = apply_tradable(ranking, trade_mask, defensive)
+            flip_neg = apply_tradable(flip_neg, trade_mask, defensive)
+            pullback = apply_tradable(pullback, trade_mask, defensive)
+
         slip = slippage_panel(prices.close, volume, lcfg, top_n=cfg.top_n)
         cost_summary = (slip.median() * 10_000).describe()
 
@@ -502,9 +539,9 @@ def main() -> int:
             print(f"    PASS  1 live universe reconciles with production\n"
                   f"          {check_production_reconciliation(prices, cfg)}")
             print(f"    PASS  2 uniform per-name slippage == flat\n"
-                  f"          {check_uniform_slippage_parity(ranking, base, prices, cfg)}")
+                  f"          {check_uniform_slippage_parity(ranking_raw, base, prices, cfg)}")
             print(f"    PASS  3 ranking_override is neutral\n"
-                  f"          {check_override_is_neutral(ranking, base, prices, cfg)}")
+                  f"          {check_override_is_neutral(ranking_raw, base, prices, cfg)}")
             print(f"    PASS  4 cost model monotone in liquidity\n"
                   f"          {check_cost_model_is_monotone(slip, adv)}")
         except ValidationFailure as exc:
@@ -542,7 +579,7 @@ def main() -> int:
 
             for label, panel in scores.items():
                 for overlay, c in (("overlay", cfg), ("plain", cfg_plain)):
-                    m, res = run_arm(panel, base, prices, c, slippage,
+                    m, res = run_arm(panel, base_arm, prices, c, slippage,
                                      return_result=True)
                     rows.append({"Arm": f"{label}_{overlay}", **m,
                                  "CAGR sd": None})
@@ -559,7 +596,7 @@ def main() -> int:
                 for _ in range(args.trials):
                     rs = random_scores(ranking, rng)
                     try:
-                        trials.append(run_arm(rs, base, prices, c, slippage))
+                        trials.append(run_arm(rs, base_arm, prices, c, slippage))
                     except Exception:
                         continue
                 if not trials:
@@ -614,8 +651,8 @@ def main() -> int:
         print("    " + "-" * 33)
         for bps in args.bps_ladder:
             c = replace(cfg, execution=replace(cfg.execution, slippage_bps=bps))
-            a = run_arm(ranking, base, prices, c)
-            b = run_arm(flip_neg, base, prices, c)
+            a = run_arm(ranking, base_arm, prices, c)
+            b = run_arm(flip_neg, base_arm, prices, c)
             print(f"    {bps:>6.1f}{a['CAGR']:>10.2%}{b['CAGR']:>11.2%}"
                   f"{b['CAGR'] - a['CAGR']:>+10.2%}")
             arm_rows.append({"Pool": pool_name, "Cost": f"uniform {bps}bps",
@@ -653,8 +690,8 @@ def main() -> int:
                 for hd in args.sweep_hold:
                     c = replace(cfg, top_n=tn, hold_days=hd)
                     s = slippage_panel(prices.close, volume, lcfg, top_n=tn)
-                    a = run_arm(ranking, base, prices, c, s)
-                    b = run_arm(flip_neg, base, prices, c, s)
+                    a = run_arm(ranking, base_arm, prices, c, s)
+                    b = run_arm(flip_neg, base_arm, prices, c, s)
                     print(f"    {tn:>6}{hd:>6}{a['CAGR']:>11.2%}"
                           f"{b['CAGR']:>10.2%}{b['CAGR'] - a['CAGR']:>+9.2%}"
                           f"{a['Sharpe']:>9.2f}{b['Sharpe']:>8.2f}"
