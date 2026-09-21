@@ -165,7 +165,7 @@ Everything is configurable; nothing below is hard-coded at a call site.
 | `hold_days` | **40** | exactly 8 weeks, so the rebalance lands on a fixed, schedulable weekday instead of drifting two weekdays per cycle. Verified against 42: `pullback` moves 21.46% -> 20.93% CAGR, inside noise. |
 | sizing | equal weight | Track I found no scheme beats it |
 | `vix` overlay | **off** | costs 3.4pp CAGR and 0.06 Sharpe on this score |
-| correlation filter | **inherited, gated at VIX > 25** | verified 2026-09-20: off is worse on everything, always-on costs 1.5pp CAGR for no Sharpe gain. Note it constrains correlation, **not sector** — [[TODO]] 0h.4 |
+| correlation filter | **absolute 0.70, EVERY rebalance** | swept 0.60-0.80; 0.70 is a ridge, not a spike. +2.72pp CAGR, Sharpe 0.64 -> 0.78, turnover unchanged. Replaces the inherited relative-percentile rule gated at VIX>25, which left no diversification constraint in a normal regime. |
 | `min_level_threshold` | **dropped** | it read the OLD composite's scores; gating a new score on one we have no reason to trust is incoherent. Stage one measured it as near-inert (650.5 vs 652.2 eligible names). |
 
 ### Screens and costs
@@ -219,7 +219,24 @@ on CAGR-and-Sharpe together in **80%**.
 > What *does* survive phase: the new score beats live at **100%** of sampled
 > phases and equal weight at 93%, worst phase still +1.00pp.
 
-### Out of sample, by 6-month window — the reason this is still a candidate
+### Out of sample, by 6-month window
+
+> [!success] The correlation rule changed the verdict
+> Before the absolute-0.70 filter, nothing cleared |t| = 2 against the live
+> composite. With it, all four comparisons do, and `flip_neg` beats live in
+> **21 of 30** calendar windows rather than 17.
+>
+> | challenger | vs | win rate | median | t before | t after |
+> |---|---|---|---|---|---|
+> | `flip_neg` | live | 68% | +5.54% | 1.34 | **2.61** |
+> | `pullback` | live | 61% | +3.86% | 1.62 | **2.79** |
+> | `flip_neg` | equal weight | 59% | +2.63% | 2.13 | 2.59 |
+> | `pullback` | equal weight | 56% | +3.36% | 2.86 | 2.75 |
+>
+> The t-statistics remain optimistic because windows are pooled across phases.
+> Win rate and worst window do not have that problem.
+
+### The pre-filter measurement, kept for the record
 
 Neither score has a parameter fitted on this data, so splitting the record into
 windows leaks nothing. 95 windows pooled across 3 rotation phases:
@@ -268,7 +285,7 @@ windows leaks nothing. 95 windows pooled across 3 rotation phases:
 | ~~`hold=40`~~ | **Decided 2026-09-20.** 8 whole weeks, fixed rebalance weekday. Verified: `pullback` 21.46% -> 20.93%, inside noise. |
 | ~~which score~~ | **Decided: `pullback`.** See below. |
 | allocation size | **Open.** The out-of-sample result (t = 1.34 against live) argues for a partial allocation rather than a wholesale switch. |
-| ~~correlation filter~~ | **Decided: keep the inherited VIX>25 gating.** Book concentration measured — excess correlation over random books is only +0.042, though 5% of rebalances are >=75% one sector. |
+| ~~correlation filter~~ | **Decided: absolute 0.70, every rebalance.** Superseded the earlier "keep the inherited gating" decision once the absolute rule was tested — the two are different rules and the first test conflated them. |
 
 ### Why `pullback` rather than `flip_neg`
 

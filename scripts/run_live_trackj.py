@@ -92,10 +92,21 @@ def build_config(top_n: int, hold: int):
       vix=None            the overlay costs 3.4pp CAGR on this score
       top_n=8             plateau rather than peak on the parameter grid
       hold_days=40        8 whole weeks, so the rebalance weekday is fixed
-      correlation kept    gated above VIX 25; verified better than off or always
+      correlation        absolute 0.70, every rebalance (swept 0.60-0.80)
     The level floor is switched off at the call site by passing base=None.
     """
-    return replace(production_config(), top_n=top_n, hold_days=hold, vix=None)
+    from momentum.config import CorrelationConfig
+    cfg = replace(production_config(), top_n=top_n, hold_days=hold, vix=None)
+    # Correlation filter: ABSOLUTE 0.70, applied EVERY rebalance.
+    #
+    # The inherited setting was a relative 85th-percentile threshold gated above
+    # VIX 25, i.e. no diversification constraint at all in a normal regime. On a
+    # book of 8 drawn from ~610 that let the model hold five semiconductors.
+    # Swept 0.60-0.80: 0.70 is the ridge, not a spike, and it improves CAGR,
+    # Sharpe, drawdown and Calmar at unchanged turnover.
+    return replace(cfg, correlation=replace(
+        cfg.correlation, enabled=True, apply_above_vix=None,
+        method="absolute", max_correlation=0.70))
 
 
 def main() -> int:
@@ -413,9 +424,45 @@ def main() -> int:
     print("=" * 100)
     print("  What the model WOULD buy if today were a rotation date. Trading")
     print("  this off-cycle is a different and untested strategy.")
-    fresh = list(score_now.dropna().sort_values(ascending=False)
-                 .head(cfg.top_n).index)
-    show(fresh, "top %d by score" % cfg.top_n)
+    # The DIVERSIFIED selection, not the raw top-N.
+    #
+    # Showing the raw ranking here would be actively misleading: with an
+    # absolute 0.70 filter running every rebalance, the top of the ranking is
+    # routinely rejected for redundancy, and today's raw top 8 is eight
+    # semiconductors the model would never buy together. Set 2 has to answer
+    # "what would it buy", so it runs the same `select_diversified` the
+    # rebalance does.
+    from momentum.correlation import RollingCorrelation, select_diversified
+
+    ranked_now = score_now.dropna().sort_values(ascending=False)
+    raw_top = list(ranked_now.head(cfg.top_n).index)
+
+    fresh, rejected = raw_top, []
+    if cfg.correlation is not None and cfg.correlation.enabled:
+        try:
+            rc = RollingCorrelation(prices.close, cfg.correlation.window)
+            trace = select_diversified(ranked_now, rc.at(session),
+                                       cfg.correlation, cfg.top_n,
+                                       exempt=sorted(defensive))
+            fresh = list(trace.selected)
+            rejected = list(trace.rejected)
+        except Exception as exc:
+            print("  (diversified selection unavailable: %s: %s)"
+                  % (type(exc).__name__, exc))
+            degraded.note("fresh selection", exc)
+
+    show(fresh, "what it would BUY today (rank order, after the %s filter)"
+                % ("absolute %.2f" % cfg.correlation.max_correlation
+                   if cfg.correlation is not None else "no"))
+
+    skipped = [s for s in raw_top if s not in fresh]
+    if skipped:
+        print("\n    raw top %d by score: %s" % (cfg.top_n, ", ".join(raw_top)))
+        print("    rejected for redundancy: %s" % ", ".join(skipped))
+    if rejected:
+        print("\n    why each was skipped (correlation with a name already taken):")
+        for sym, against, rho in rejected[:10]:
+            print("      %-8s vs %-8s  rho %.2f" % (sym, against, rho))
 
     overlap = set(held) & set(fresh)
     print(f"\n  Overlap with the aligned book: {len(overlap)} of {len(held)}"

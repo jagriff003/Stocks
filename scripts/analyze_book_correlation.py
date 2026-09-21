@@ -94,7 +94,7 @@ def book_stats(holdings_history, returns_panel, sectors, window, rng,
             if d in eligible_mask.index else []
         pool = [p for p in pool if p in returns_panel.columns]
         rnd = np.nan
-        if len(pool) > len(names):
+        if n_random and len(pool) > len(names):
             draws = [mean_corr(list(rng.choice(pool, size=len(names),
                                                replace=False)))
                      for _ in range(n_random)]
@@ -119,6 +119,9 @@ def main() -> int:
     p.add_argument("--hold", type=int, default=40)
     p.add_argument("--corr-window", type=int, default=50)
     p.add_argument("--random-draws", type=int, default=200)
+    p.add_argument("--abs-thresholds", type=float, nargs="+",
+                   default=[0.60, 0.65, 0.70, 0.75, 0.80],
+                   help="absolute max-correlation values to sweep, always-on")
     p.add_argument("--seed", type=int, default=20260920)
     p.add_argument("--start", default="2010-01-01")
     p.add_argument("--min-adv", type=float, default=10e6)
@@ -161,33 +164,57 @@ def main() -> int:
     pull = apply_tradable(pull, tmask, defensive)
     slip = slippage_panel(full.close, vol, lcfg, top_n=cfg.top_n)
 
-    print("\n  Three filter settings, end to end")
+    # The inherited setting uses a RELATIVE threshold (the 85th percentile of
+    # that date's correlation distribution) and only engages above VIX 25.  The
+    # absolute variants below are the rule as normally described: "no pair above
+    # rho", applied every rebalance.  They are different rules and an earlier
+    # version of this study conflated them.
+    print("\n  Filter settings, end to end")
     variants = {
-        "filter off": None,
-        "filter above VIX 25 (inherited)": replace(
+        "off": None,
+        "relative 85th pct, VIX>25 (inherited)": replace(
             cfg.correlation, enabled=True, apply_above_vix=25.0),
-        "filter always on": replace(
+        "relative 85th pct, always": replace(
             cfg.correlation, enabled=True, apply_above_vix=None),
     }
-    hdr = (f"    {'setting':<34}{'CAGR':>9}{'Sharpe':>8}{'MaxDD':>9}"
-           f"{'Calmar':>8}{'Vol':>8}{'Turn':>8}")
+    for thresh in args.abs_thresholds:
+        variants["absolute %.2f, always" % thresh] = replace(
+            cfg.correlation, enabled=True, apply_above_vix=None,
+            method="absolute", max_correlation=thresh)
+    hdr = (f"    {'setting':<40}{'CAGR':>9}{'Sharpe':>8}{'MaxDD':>9}"
+           f"{'Calmar':>8}{'Vol':>8}{'Turn':>8}{'held rho':>10}{'1-sector':>10}")
     print(hdr)
     print("    " + "-" * (len(hdr) - 4))
 
+    rets_all = full.close.pct_change()
+    rng0 = np.random.default_rng(args.seed)
     results, rows = {}, []
     for label, corr in variants.items():
         c = replace(cfg, correlation=corr)
         m, res = run_arm(pull, None, full, c, slip, return_result=True)
         results[label] = res
-        print(f"    {label:<34}{m['CAGR']:>9.2%}{m['Sharpe']:>8.2f}"
+
+        # What the filter actually achieved, not just what it cost: mean
+        # pairwise correlation of the resulting book, and how often the book is
+        # majority one sector. A filter that costs CAGR without moving these
+        # has bought nothing.
+        s = book_stats(res.holdings_history, rets_all, sectors,
+                       args.corr_window, rng0, tmask, 0)
+        held_rho = s["HeldCorr"].mean() if not s.empty else float("nan")
+        one_sec = ((s["TopSectorShare"] >= 0.5).mean()
+                   if not s.empty else float("nan"))
+
+        print(f"    {label:<40}{m['CAGR']:>9.2%}{m['Sharpe']:>8.2f}"
               f"{m['MaxDD']:>9.2%}{m['Calmar']:>8.2f}{m['Volatility']:>8.2%}"
-              f"{m['Annual Turnover']:>8.0%}", flush=True)
-        rows.append({"Setting": label, **m})
+              f"{m['Annual Turnover']:>8.0%}{held_rho:>10.3f}"
+              f"{one_sec:>10.0%}", flush=True)
+        rows.append({"Setting": label, "HeldCorr": held_rho,
+                     "MajorityOneSector": one_sec, **m})
 
     # --- what the book actually looks like, on the live-configured arm ---
-    rets = full.close.pct_change()
+    rets = rets_all
     rng = np.random.default_rng(args.seed)
-    stats = book_stats(results["filter above VIX 25 (inherited)"].holdings_history,
+    stats = book_stats(results["relative 85th pct, VIX>25 (inherited)"].holdings_history,
                        rets, sectors, args.corr_window, rng, tmask,
                        args.random_draws)
 
@@ -229,6 +256,8 @@ def main() -> int:
               f"{r['Holdings']}")
 
     stats.to_csv(REPO_ROOT / OUT, index=False)
+    pd.DataFrame(rows).to_csv(REPO_ROOT / "rsi_ma_book_correlation_sweep.csv",
+                              index=False)
     print(f"\n  Exported to {REPO_ROOT / OUT}")
 
     print("\n" + "=" * 100)

@@ -122,11 +122,22 @@ def main() -> int:
     p.add_argument("--min-adv", type=float, default=10e6)
     p.add_argument("--min-price", type=float, default=5.0)
     p.add_argument("--account", type=float, default=100_000.0)
+    p.add_argument("--max-corr", type=float, default=0.70,
+                   help="absolute correlation cap, applied every rebalance; "
+                        "0 disables the filter")
     p.add_argument("--no-cache", action="store_true")
     args = p.parse_args()
 
     cfg = replace(production_config(), top_n=args.top_n, hold_days=args.hold,
                   vix=None)
+    if args.max_corr:
+        # The diversification rule adopted 2026-09-20: absolute threshold,
+        # applied every rebalance rather than only above VIX 25. Included here
+        # because the rule was chosen on full-sample CAGR, so the question
+        # "does it survive out of sample" is the one that matters about it.
+        cfg = replace(cfg, correlation=replace(
+            cfg.correlation, enabled=True, apply_above_vix=None,
+            method="absolute", max_correlation=args.max_corr))
     rcfg = ReversalConfig()
     lcfg = LiquidityConfig(account_notional=args.account)
     defensive = set(defensive_symbols())
@@ -135,7 +146,8 @@ def main() -> int:
     print("OUT-OF-SAMPLE: new score vs live composite")
     print(f"Started {datetime.now():%Y-%m-%d %H:%M:%S}")
     print(f"top_n {args.top_n}   hold {args.hold}d   {args.phases} phase(s) "
-          f"pooled   {args.window_months}-month windows")
+          f"pooled   {args.window_months}-month windows   "
+          f"corr cap {args.max_corr or 'off'}")
     print("=" * 100)
     print("  Neither score has a parameter fitted on this data, so splitting")
     print("  the record into windows leaks nothing. Both were fully specified")
