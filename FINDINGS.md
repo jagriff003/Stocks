@@ -42,7 +42,8 @@ metrics and is subperiod-consistent.
 | Model health monitor | **built** | diagnostic, not a return change |
 | Track J — trend change, strength, room to run | **hypothesis rejected** | stage one; turn and headroom both wrong-signed |
 | Track J inverted — 12-1 momentum minus recent pullback | **lead, not a finding** | +0.99%/14d at t=2.66 on 747 names, but only below $50B cap |
-| Track J stage two — portfolio backtest | **new score wins** | +16.5pp ranking skill vs -3.4pp for live, on 635 names |
+| Track J stage two — portfolio backtest | **partly superseded** | look-ahead screen; see the correction |
+| Track J corrected — per-date screen, phase, out-of-sample | **real but noisy** | beats live at 100% of phases; t=1.34 by window, not significant |
 
 Live model: **19.84% CAGR, 0.91 Sharpe, -19.23% max drawdown, Calmar 1.03**,
 net of realistic fills and costs. The honest like-for-like starting point was
@@ -1575,6 +1576,10 @@ difference produced NaN and `nan > tol` is False.
 
 ## Track J, stage two — the portfolio comparison: the new score wins, and the live composite is worse than random off its own universe
 
+> **Superseded in part — see "Correction to Track J stage two" below.**
+> The pool screen used here was look-ahead, and the claim that the live
+> composite has negative ranking skill is RETRACTED.
+
 **Run 2026-09-20.** `scripts/analyze_reversal_backtest.py`. An information
 coefficient is not a P&L, so this puts both scores through identical portfolio
 machinery.
@@ -1741,6 +1746,115 @@ panel (gap 0.0000%); uniform per-name slippage equals the flat path (0.0e+00);
 `ranking_override` is neutral (0.0e+00, return streams equal over 3,669 days);
 and the cost model is monotone in liquidity (ADV quintile medians 18.9 -> 4.6
 bps, Spearman -0.97).
+
+---
+
+## Correction to Track J stage two, and what replaced it
+
+**Written 2026-09-20, same day as the results above.** The stage-two section is
+left standing because the record of what was believed and why it changed is
+worth more than a clean page. Three of its numbers are wrong and one of its
+conclusions is retracted.
+
+### The defect: the pool screen was look-ahead
+
+The screened pool was built by taking each name's **full-sample median** trailing
+dollar volume and keeping those above $10M. A name therefore earned its place in
+the 2010 cross-section because of volume it had in 2020 — and worse, it
+reintroduces survivorship through the back door, because the names that stayed
+liquid are disproportionately the ones that did well.
+
+Replaced by `momentum.liquidity.tradable_mask`: a **per-date** screen on trailing
+dollar volume and price that blanks the score on days a name fails, so a name
+becomes unpickable and pickable again as conditions change. A price floor was
+added at the same time, as the blunt proxy for the exchange continued-listing
+minimum.
+
+### What changed, at `top_n=8, hold=42`
+
+| arm (overlay off) | as reported above | corrected |
+|---|---|---|
+| `flip_neg` | 22.74% / 0.48 | **26.56% / 0.69** |
+| `pullback` | 24.35% / 0.65 | 21.46% / 0.66 |
+| composite (live) | **3.14% / -0.05** | **14.36% / 0.46** |
+| equal-weight pool | 14.81% / 0.55 | 13.48% / 0.48 |
+| random_plain | 7.02% | 11.92% |
+
+**RETRACTED: "the production composite has negative ranking skill on this pool".**
+It does not. Corrected, its ranking skill is **+2.49pp gross** — positive, and in
+line with Track F's +0.84pp on the live universe. The live model is not broken
+off its own universe; it is merely beaten. The original claim was an artifact of
+the look-ahead screen and of `top_n=4/hold=14`, and it was wrong in the
+direction that flattered the new result, which is the direction to be most
+suspicious of.
+
+The two scores also swapped places. Parameters changed at the same time as the
+screen, so which of `flip_neg` and `pullback` is better is **not settled**.
+
+### Three defects in this family, all of which printed plausible output
+
+Recorded together because they share one signature — none of them raised, and
+each produced numbers a reader would have believed:
+
+1. **The pool-loader check returned `nan`.** A masked difference produced NaN,
+   `nan > tol` is False, and the check "passed" while comparing nothing. Fixed
+   with `np.nanmax`, a relative tolerance, and an assertion on the number of
+   cells actually compared.
+2. **The delisting generator normalized every synthetic name to $100.** An 85%
+   decline left it at $15, so a $5 price floor could never fire. The resulting
+   "96% were still tradable the day before death" was a statement about the
+   generator, not about the screen. With donor price levels and deeper
+   cause-branch declines it is 63%, the rest screened out a median 95-100
+   sessions early.
+3. **`pd.Grouper(freq='6MS')` anchors bins to each series' own first timestamp.**
+   The arms start on different dates — the new score needs 252+63 sessions
+   before it can rank — so no two arms ever shared a window label and every
+   walk-forward comparison had zero rows. It reported `nan%`. Fixed by binning
+   from a fixed origin.
+
+The lesson is the one already in `validate-before-reporting`: in this repo the
+failure mode is never a crash, it is a plausible number. Every one of these was
+caught by a check that existed to be sceptical of a result, not by the result
+looking wrong.
+
+### What the corrected picture supports
+
+Three tests were run after the fix, and they do not all say the same thing.
+
+**Rotation phase (TODO 0h.1) — passed.** Across 14 sampled offsets the new
+score's CAGR spans **13.16% to 23.35%**, a 10.19pp spread against 0.71pp for
+equal weight, so the dispersion is a rotation artifact rather than anything about
+the data. The advantage survives it: the new score beats live at **100%** of
+phases and equal weight at 93%, worst phase +1.00pp. But the level was a
+favourable draw — **the honest figure is the median 21.56%, not 26.56%.**
+
+**Out of sample by window — the advantage is not significant against live.**
+Over 95 six-month windows pooled across three phases, `flip_neg` beat the live
+composite in 62% of them at a median +6.60%, with **t = 1.34** — and that t is
+optimistic, because pooled windows overlap across phases. By calendar period it
+won **17 of 30**. The full-sample gap comes from a minority of windows winning
+big. Worst single window: **-73pp** against live. The two most recent full
+windows go heavily the other way — 2025-07 (live +22.0% vs -7.6%) and 2026-01
+(live +51.1% vs -0.2%).
+
+Against *owning the pool* it does clear the bar: t = 2.13 and 2.86.
+
+**Score switching (TODO 0f) — closed, it does not work.** Selecting between the
+scores on trailing performance returned 17.92% at 0.48 Sharpe against a median
+fixed config's 0.54, and picked the truly-best config 29% of the time against
+33% for a coin. The same answer walk-forward already gave for parameter
+re-tuning, arriving again for score selection.
+
+### The standing position
+
+The phase test and the window test say different things and both are true: the
+advantage is **not** an artifact of where the rotation clock started, and it is
+**not** reliable window to window. A real but noisy edge whose full-sample
+numbers oversell it.
+
+That argues for a partial allocation rather than a switch, and it argues for
+quoting the phase median. Survivorship (TODO 0d) remains unquantified and
+accepted as a known risk by decision, not by evidence.
 
 ---
 
