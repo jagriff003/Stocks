@@ -227,10 +227,25 @@ written down before go-live rather than diagnosed after.
    column order, i.e. effectively by ticker alphabetically. Quantify how often
    ties reach the top 8, and break them on something defensible.
 
-4. **The correlation filter is untested at this book size and pool size.** It
-   was set up for 4 names drawn from 46. At 8 from 635, `on_infeasible='relax'`
-   may silently alter the book or the effective size. Verify what it actually
-   does before it does it live.
+4. ~~**The correlation filter is untested at this book size and pool size.**~~
+   **ANSWERED 2026-09-20**, `scripts/analyze_book_correlation.py`. Keep the
+   inherited `apply_above_vix=25.0` gating: off is worse on everything
+   (18.84% / 0.54 against 20.93% / 0.64), and always-on costs 1.5pp of CAGR to
+   buy 1pp of drawdown with Sharpe unchanged (0.64 -> 0.65). The filter
+   transfers from the 46-name universe without modification.
+
+   Concentration is real but modest: held-book pairwise correlation 0.319
+   against 0.278 for random books from the same pool, an excess of **+0.042**,
+   exceeding random in 60% of rebalances. Largest single-sector share averages
+   40%; the book is >=50% one sector in 28% of rebalances and >=75% in 5%.
+
+   **The open gap is that the filter constrains CORRELATION, not SECTOR.** The
+   worst books are miners, not semiconductors -- 2016-11-08 was 100% Basic
+   Materials (CDE HL CLF MUX BVN NEM AEM PAAS) and happened *with* the filter
+   configured, because that date's VIX was under 25. Precious-metals miners pull
+   back together, so a dip-buying score picks them as a group. A sector cap is a
+   different instrument and is untested; it belongs with 0e rather than here,
+   since the >=75% case is 5% of rebalances.
 
 ### Medium — real but bounded
 

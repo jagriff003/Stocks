@@ -165,7 +165,7 @@ Everything is configurable; nothing below is hard-coded at a call site.
 | `hold_days` | **40** | exactly 8 weeks, so the rebalance lands on a fixed, schedulable weekday instead of drifting two weekdays per cycle. Verified against 42: `pullback` moves 21.46% -> 20.93% CAGR, inside noise. |
 | sizing | equal weight | Track I found no scheme beats it |
 | `vix` overlay | **off** | costs 3.4pp CAGR and 0.06 Sharpe on this score |
-| correlation filter | inherited | ⚠️ untested at this book/pool size — [[TODO]] 0h.4 |
+| correlation filter | **inherited, gated at VIX > 25** | verified 2026-09-20: off is worse on everything, always-on costs 1.5pp CAGR for no Sharpe gain. Note it constrains correlation, **not sector** — [[TODO]] 0h.4 |
 | `min_level_threshold` | **dropped** | it read the OLD composite's scores; gating a new score on one we have no reason to trust is incoherent. Stage one measured it as near-inert (650.5 vs 652.2 eligible names). |
 
 ### Screens and costs
@@ -268,7 +268,7 @@ windows leaks nothing. 95 windows pooled across 3 rotation phases:
 | ~~`hold=40`~~ | **Decided 2026-09-20.** 8 whole weeks, fixed rebalance weekday. Verified: `pullback` 21.46% -> 20.93%, inside noise. |
 | ~~which score~~ | **Decided: `pullback`.** See below. |
 | allocation size | **Open.** The out-of-sample result (t = 1.34 against live) argues for a partial allocation rather than a wholesale switch. |
-| correlation filter | **Open, next up.** Inherited and untested at 8-from-635 — [[TODO]] 0h.4. |
+| ~~correlation filter~~ | **Decided: keep the inherited VIX>25 gating.** Book concentration measured — excess correlation over random books is only +0.042, though 5% of rebalances are >=75% one sector. |
 
 ### Why `pullback` rather than `flip_neg`
 
