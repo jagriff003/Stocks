@@ -1,6 +1,6 @@
 ---
 title: Track J model — pullback-in-uptrend
-status: candidate, not live
+status: baseline — run discretionarily alongside production
 created: 2026-09-20
 tags: [model, momentum, reversal, track-j]
 ---
@@ -9,9 +9,11 @@ tags: [model, momentum, reversal, track-j]
 
 **Selected score: `pullback`. Selected hold: 40 sessions (8 whole weeks).**
 
-> [!warning] Not live
-> This documents a **candidate**. The live model is still the RSI/MA composite
-> described in [[FINDINGS]].
+> [!warning] Baseline, not yet the traded model
+> Adopted as the **baseline** 2026-09-20 and run discretionarily alongside
+> `run_live.py`, which remains the model actually traded. Both run on the same
+> day; nothing is shared between them, so switching is a decision rather than a
+> flag.
 >
 > Status 2026-09-20: the phase gate (TODO 0h.1) **passed** — the advantage holds
 > at 100% of rotation phases. The level floor (0h.2) is **dropped**. The
