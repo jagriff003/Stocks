@@ -668,6 +668,34 @@ CSV would do; the value is in having the series at all.
 What would count as an answer: the ability to say "the model degraded" or "my
 execution degraded" without guessing. These call for opposite responses.
 
+### PARTLY ANSWERED 2026-09-20 — and it is the biggest number in this file
+
+The account's transaction export (2026-01 to 2026-09) was
+reconciled against the modelled book by `scripts/reconcile_trades.py`. The
+answer to "model or execution" is **neither** — it is that the account and the
+model were holding **different books**.
+
+Monthly overlap between the modelled book and actual holdings: **0%, 0%, 17%,
+25%, 12%, 25%, 50%, 12%, 62%.** Three of the first four rotations had ZERO names
+in common. **+12.80pp of the model's +24.73pp arithmetic YTD came from names
+never held at any point** — PWR +5.08% and LMT +3.96% alone are +9.04pp, and
+neither appears in the trade history.
+
+Much of the early divergence is model-version drift rather than error: the 2026
+scoring fixes mean today's code does not reproduce the book the spring's code
+recommended. The convergence toward 62% by September tracks those fixes landing.
+
+**What this promotes.** Going from ~25% book compliance to 90% is worth more
+than the entire Track J signal improvement — which took a full day to measure,
+argue and validate, and is smaller than the compliance gap. That reorders this
+whole file: the next unit of effort belongs on *following the book*, not on
+improving the score.
+
+**Still missing** for a complete answer: a starting balance and the Roth
+account, without which the account's true return cannot be computed. Overlap and
+missed contribution are the measurable parts; `reconcile_trades.py` refuses to
+invent a headline P&L from a transaction list.
+
 ---
 
 ## 3. Recalibrate the health monitor without survivorship bias

@@ -44,6 +44,8 @@ metrics and is subperiod-consistent.
 | Track J inverted — 12-1 momentum minus recent pullback | **lead, not a finding** | +0.99%/14d at t=2.66 on 747 names, but only below $50B cap |
 | Track J stage two — portfolio backtest | **partly superseded** | look-ahead screen; see the correction |
 | Track J corrected — per-date screen, phase, out-of-sample | **real but noisy** | beats live at 100% of phases; t=1.34 by window, not significant |
+| Correlation cap, absolute 0.70 every rebalance | **adopted** | +2.72pp CAGR, Sharpe 0.64->0.78, and t vs live 1.34->2.61 out of sample |
+| Live-vs-account reconciliation | **the gap is not the model** | book overlap averaged 25%; +12.8pp of the modelled year came from names never held |
 
 Live model: **19.84% CAGR, 0.91 Sharpe, -19.23% max drawdown, Calmar 1.03**,
 net of realistic fills and costs. The honest like-for-like starting point was
@@ -1855,6 +1857,94 @@ numbers oversell it.
 That argues for a partial allocation rather than a switch, and it argues for
 quoting the phase median. Survivorship (TODO 0d) remains unquantified and
 accepted as a known risk by decision, not by evidence.
+
+---
+
+## The account was not running the model — and that dwarfs every signal result in this file
+
+**Run 2026-09-20.** `scripts/analyze_ytd_gap.py` and `scripts/reconcile_trades.py`,
+the latter against the account's transaction export (2026-01 to 2026-09).
+
+The production backtest reports **+18.04% YTD**. The account's realised result was far below it. That divergence is larger than every effect measured anywhere in
+this document, and until it was explained, every comparison here was a statement
+about a simulation rather than about money.
+
+### It is not the universe
+
+The first hypothesis — that the backtest is inflated by ranking names only added
+in the 2026-09-17 universe update — is **wrong, and backwards**:
+
+| universe | YTD | full CAGR |
+|---|---|---|
+| current 46 names (what the backtest uses) | +18.04% | 17.21% |
+| pre-update 52 names (what was actually held until September) | **+22.09%** | 22.34% |
+
+The September update made the backtest **4.06pp worse**. Trading the old
+universe should have earned more, not less.
+
+### It is not execution either
+
+It is that **the account and the model were holding different books**, for most
+of the year.
+
+| | modelled | actually held | overlap |
+|---|---|---|---|
+| 2026-01-06 | XOM LLY CAH STT | (private) | 0/4 |
+| 2026-01-20 | XOM LMT PM ULTA | (private) | 0/4 |
+| 2026-02-17 | GILD LMT XOM CNP | (private) | 0/4 |
+| 2026-03-17 | PWR COST STX MPC | (private) | 1/4 |
+| 2026-05-12 | STX PWR NVDA CAT | (private) | 0/4 |
+| 2026-07-07 | LYV V PGR SPG | (private) | 2/4 |
+| 2026-09-01 | MPC MSFT WELL KO | (private) | 3/4 |
+
+Monthly overlap: **0%, 0%, 17%, 25%, 12%, 25%, 50%, 12%, 62%.**
+
+### Where the year went
+
+The backtest's YTD is five names — STX +7.64%, PWR +5.08%, MPC +5.05%,
+LMT +3.96%, XOM +2.87% — which together are +24.6% of a +24.73% arithmetic
+total. Everything else nets to approximately zero.
+
+**Of that, +12.80% came from names never held at any point.** PWR and LMT alone
+are +9.04pp, and neither appears anywhere in the trade history.
+
+So more than half the modelled year came from positions that never existed in
+the account.
+
+### What this does and does not mean
+
+**It is not evidence the model fails in practice.** It is evidence that
+something other than the model was traded. Those are opposite conclusions and
+the distinction was unavailable until the trade log arrived.
+
+**Much of the early divergence is model-version drift, not error.** The scoring
+defects fixed during 2026 mean today's code does not reproduce the book the
+spring's code recommended, so a 0/4 overlap in January compares the account
+against a retrospective book that never existed at the time. The convergence to
+62% by September tracks the fixes landing.
+
+**The largest available improvement in this repo is not a better signal.** Going
+from ~25% book compliance to 90% is worth more than the entire Track J gain —
+the whole of which was measured, argued and validated across a full day's work,
+and which is smaller than the compliance gap. A better score that is not
+followed is worth nothing, and this is the first hard evidence of that here.
+
+### What is still unmeasurable
+
+The transaction export has no starting balance, so the account's true return cannot be computed from it. Overlap and missed
+contribution are the measurable parts. Anything claiming a headline account P&L
+from this data would be invented, and the script says so rather than guessing.
+
+### Reproducing
+
+```
+python scripts/analyze_ytd_gap.py
+python scripts/reconcile_trades.py --trades <transactions.csv>
+```
+
+`reconcile_trades.py` writes its detail to the scratchpad rather than the repo:
+account data does not belong in version control, and this repo's .gitignore
+would swallow a stray CSV silently rather than flag it.
 
 ---
 
