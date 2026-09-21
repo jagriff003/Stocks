@@ -433,6 +433,41 @@ volatility, against the return from that point to the end of the hold:
 | -3 to -2.5 | 1,457 | +1.79% | 56% |
 | -0.5 to 0 | 10,233 | +1.90% | 57% |
 
+**CORRECTED 2026-09-20, same day.** The table above measures the wrong
+quantity for the decision. "Hit rate" was P(positive return from here), which is
+not recovery — a position can drift up slightly and never regain its high. On
+James's framing the question is *probability of recovery*, and measured properly
+there is a strong gradient:
+
+| vols below peak | off peak | P(regains peak) | P(regains entry) | to hold end |
+|---|---|---|---|---|
+| -0.5 to 0 | -0.2% | **86%** | 97% | +1.90% |
+| -1.5 to -1 | -2.9% | 65% | 87% | +1.94% |
+| -2.5 to -2 | -5.2% | 46% | 73% | +1.73% |
+| -4 to -3 | -7.9% | 28% | 53% | +2.21% |
+| -6 to -5 | -12.4% | 14% | 24% | +2.38% |
+| < -6 | -16.7% | **5%** | 10% | +2.01% |
+
+**Timing matters as much as depth.** At -3 to -4 vols: 51% recovery early in the
+hold, 31% in the middle, **11%** in the last third. At -5 to -6 vols: 42% / 16%
+/ **3%**.
+
+**Both a vol-scaled and an absolute threshold carry information, with vols
+dominant.** Holding raw percentage fixed, the vol measure still separates 3x (at
+-12 to -7% off peak: 13% recovery beyond -4 vols against 43% at -2 to -1 vols).
+Holding vols fixed, raw percentage adds a milder gradient. The worst cell is
+beyond -4 vols AND more than 20% off peak: **7% recovery** over 662 observations.
+
+**The awkward shape for a stop rule.** A deep position still has a positive
+expected return to hold end — it mean-reverts partially without recovering, which
+is "losing less" rather than "getting well". So the two readings are both true:
+recovery is gone, and selling still forgoes a gain. Worse, the clean stop case is
+deep AND late (3-11% recovery, ~+1% remaining), but late in the hold the rotation
+is days away anyway, so a stop there saves little by construction. Where a stop
+would matter most — deep and early — the forward return is HIGHEST (+4% to +8%).
+
+The original observation below still stands on its own terms:
+
 **Every depth is followed by a positive return, and the deep ones are BETTER
 than sitting at the peak.** A stop at -3 vols would have sold 22% of all
 position-days and forgone +2.26% each time. Pooled at every threshold from -1.5

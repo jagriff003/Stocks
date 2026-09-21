@@ -154,15 +154,34 @@ def main() -> int:
             peak = path.cummax()
             v = dvol[n].reindex(window)
             final = path.iloc[-1]
-            for d, px in path.items():
+            entry_px = path.dropna().iloc[0] if path.notna().any() else np.nan
+            vals = path.to_numpy()
+            n_days = len(window)
+            for j, (d, px) in enumerate(path.items()):
                 pk, vv = peak.get(d), v.get(d)
                 if not (px == px and pk == pk and vv == vv and vv > 0):
                     continue
-                exc = (px / pk - 1) / vv
+                fwd = vals[j + 1:]
+                fwd = fwd[np.isfinite(fwd)]
+                if fwd.size == 0:
+                    continue
+                best_ahead = float(fwd.max())
                 rows.append({
-                    "Excursion": exc,
+                    "Excursion": (px / pk - 1) / vv,
+                    "OffPeakPct": px / pk - 1,
+                    # RECOVERY, three ways. "Positive return from here" is not
+                    # recovery -- a position can drift up a little and never
+                    # regain its high. These are the questions a stop decision
+                    # actually turns on.
+                    "RecoverPeak": best_ahead >= pk,
+                    "RecoverEntry": (best_ahead >= entry_px
+                                     if entry_px == entry_px else np.nan),
+                    "EndsAbovePeak": final >= pk,
+                    "EndsAboveEntry": (final >= entry_px
+                                       if entry_px == entry_px else np.nan),
                     "ToHoldEnd": final / px - 1,
-                    "DaysLeft": int((window > d).sum()),
+                    "DaysLeft": int(n_days - j - 1),
+                    "HoldFrac": j / max(1, n_days - 1),
                     "Name": n, "Date": d,
                 })
 
@@ -181,13 +200,15 @@ def main() -> int:
     df["Bucket"] = pd.cut(df["Excursion"], bins=edges, labels=labels)
 
     print("\n" + "=" * 104)
-    print("WHAT FOLLOWS, BY DEPTH BELOW THE PEAK SINCE ENTRY")
+    print("PROBABILITY OF RECOVERY, BY DEPTH BELOW THE PEAK SINCE ENTRY")
     print("=" * 104)
-    print("  'hold from here' is the return from this day to the end of the")
-    print("  hold. NEGATIVE supports a stop at that depth; POSITIVE means a")
-    print("  stop there would have sold into the reversion this model buys.")
-    hdr = (f"    {'vols below peak':<16}{'position-days':>15}{'share':>8}"
-           f"{'hold from here':>16}{'median':>10}{'hit rate':>10}")
+    print("  'regains peak'  — does it trade back to its high-water mark before")
+    print("                    the hold ends? This is recovery in the strict sense.")
+    print("  'regains entry' — does it get back to what was paid for it?")
+    print("  'ends > peak'   — is it AT or above the peak when the hold ends?")
+    hdr = (f"    {'vols below peak':<16}{'days':>9}{'off peak':>10}"
+           f"{'regains peak':>14}{'regains entry':>15}{'ends > peak':>13}"
+           f"{'to hold end':>13}")
     print(hdr)
     print("    " + "-" * (len(hdr) - 4))
     out = []
@@ -195,45 +216,68 @@ def main() -> int:
         sub = df[df["Bucket"] == lab]
         if sub.empty:
             continue
-        mean = sub["ToHoldEnd"].mean()
-        flag = ""
-        if mean < -0.005:
-            flag = "   <- stop would have helped"
-        elif mean > 0.02:
-            flag = "   <- stop would have sold the bottom"
-        print(f"    {lab:<16}{len(sub):>15,}{len(sub)/len(df):>8.1%}"
-              f"{mean:>16.2%}{sub['ToHoldEnd'].median():>10.2%}"
-              f"{(sub['ToHoldEnd'] > 0).mean():>10.0%}{flag}")
-        out.append({"Bucket": lab, "N": len(sub), "MeanToHoldEnd": mean,
-                    "MedianToHoldEnd": sub["ToHoldEnd"].median(),
-                    "HitRate": (sub["ToHoldEnd"] > 0).mean()})
+        row = {"Bucket": lab, "N": len(sub),
+               "OffPeakPct": sub["OffPeakPct"].mean(),
+               "RecoverPeak": sub["RecoverPeak"].mean(),
+               "RecoverEntry": sub["RecoverEntry"].mean(),
+               "EndsAbovePeak": sub["EndsAbovePeak"].mean(),
+               "MeanToHoldEnd": sub["ToHoldEnd"].mean()}
+        print(f"    {lab:<16}{len(sub):>9,}{row['OffPeakPct']:>10.1%}"
+              f"{row['RecoverPeak']:>14.0%}{row['RecoverEntry']:>15.0%}"
+              f"{row['EndsAbovePeak']:>13.0%}{row['MeanToHoldEnd']:>13.2%}")
+        out.append(row)
 
-    # --- the decision form: everything beyond a threshold ---
     print("\n" + "=" * 104)
-    print("IF YOU STOPPED AT k VOLS BELOW THE PEAK")
+    print("DOES IT DEPEND ON WHEN IN THE HOLD IT HAPPENS?")
     print("=" * 104)
-    print("  Every position-day at or beyond the threshold, pooled. This is the")
-    print("  quantity a stop rule trades away, ignoring what the freed slot")
-    print("  would then buy.")
-    hdr2 = (f"    {'threshold':>10}{'days beyond':>14}{'share':>8}"
-            f"{'mean forgone':>15}{'t':>8}{'hit rate':>10}")
+    print("  Same question, split by how far through the hold the drawdown")
+    print("  occurs. Early has time to recover; late does not, so any gradient")
+    print("  here is about remaining time rather than about the signal.")
+    thirds = {"early (first 1/3)": (0.0, 1 / 3),
+              "middle": (1 / 3, 2 / 3),
+              "late (last 1/3)": (2 / 3, 1.01)}
+    hdr2 = (f"    {'vols below':<12}{'when':<20}{'days':>8}"
+            f"{'regains peak':>14}{'to hold end':>13}")
     print(hdr2)
     print("    " + "-" * (len(hdr2) - 4))
-    for k in (1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0):
-        sub = df[df["Excursion"] <= -k]
+    for k in (1, 2, 3, 4, 5):
+        band = df[(df["Excursion"] <= -k) & (df["Excursion"] > -(k + 1))]
+        if len(band) < 100:
+            continue
+        for wlab, (lo, hi) in thirds.items():
+            sub = band[(band["HoldFrac"] >= lo) & (band["HoldFrac"] < hi)]
+            if len(sub) < 40:
+                continue
+            print(f"    {('-%d to -%d' % (k, k + 1)):<12}{wlab:<20}"
+                  f"{len(sub):>8,}{sub['RecoverPeak'].mean():>14.0%}"
+                  f"{sub['ToHoldEnd'].mean():>13.2%}")
+            out.append({"Bucket": f"-{k} to -{k+1} / {wlab}", "N": len(sub),
+                        "RecoverPeak": sub["RecoverPeak"].mean(),
+                        "MeanToHoldEnd": sub["ToHoldEnd"].mean()})
+
+    print("\n" + "=" * 104)
+    print("IS THERE AN ABSOLUTE THRESHOLD AS WELL AS A VOL-SCALED ONE?")
+    print("=" * 104)
+    print("  Recovery probability by raw percentage off the peak, so the two")
+    print("  framings can be compared directly.")
+    pedges = [-1.01, -0.40, -0.30, -0.20, -0.15, -0.10, -0.05, 0.001]
+    plabels = ["< -40%", "-40 to -30%", "-30 to -20%", "-20 to -15%",
+               "-15 to -10%", "-10 to -5%", "-5 to 0%"]
+    df["PctBucket"] = pd.cut(df["OffPeakPct"], bins=pedges, labels=plabels)
+    hdr3 = (f"    {'off peak':<14}{'days':>9}{'avg vols':>10}"
+            f"{'regains peak':>14}{'to hold end':>13}")
+    print(hdr3)
+    print("    " + "-" * (len(hdr3) - 4))
+    for lab in plabels:
+        sub = df[df["PctBucket"] == lab]
         if len(sub) < 50:
             continue
-        mean = sub["ToHoldEnd"].mean()
-        # Position-days overlap heavily, so this t is optimistic and is
-        # labelled as such rather than quoted as significance.
-        tstat = mean / (sub["ToHoldEnd"].std() / np.sqrt(len(sub)))
-        verdict = "bail" if mean < 0 else "hold"
-        print(f"    {-k:>10.1f}{len(sub):>14,}{len(sub)/len(df):>8.1%}"
-              f"{mean:>15.2%}{tstat:>8.1f}{(sub['ToHoldEnd'] > 0).mean():>10.0%}"
-              f"   -> {verdict}")
-        out.append({"Bucket": f"<= -{k}", "N": len(sub), "MeanToHoldEnd": mean,
-                    "MedianToHoldEnd": sub["ToHoldEnd"].median(),
-                    "HitRate": (sub["ToHoldEnd"] > 0).mean()})
+        print(f"    {lab:<14}{len(sub):>9,}{sub['Excursion'].mean():>10.1f}"
+              f"{sub['RecoverPeak'].mean():>14.0%}"
+              f"{sub['ToHoldEnd'].mean():>13.2%}")
+        out.append({"Bucket": lab, "N": len(sub),
+                    "RecoverPeak": sub["RecoverPeak"].mean(),
+                    "MeanToHoldEnd": sub["ToHoldEnd"].mean()})
 
     pd.DataFrame(out).to_csv(REPO_ROOT / OUT, index=False)
 
