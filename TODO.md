@@ -339,6 +339,66 @@ drawdown.
 
 ---
 
+## 0j. Anchor the rotation to a weekday, not a session count
+
+**Added 2026-09-20.** The production model rotates on a Tuesday 28 times out of
+its last 30, which fits the operating pattern exactly: run after Tuesday's
+close, trade Wednesday's open. Track J at `hold=40` does not — its last six
+rotations were Tue, Mon, Mon, Tue, Mon, Mon.
+
+The cause is that **40 sessions is 8 calendar weeks only when no holiday falls
+inside the cycle.** Each holiday stretches the cycle by a weekday, so the
+rotation walks forward and then oscillates. Choosing a whole-week hold pins the
+weekday only in a market with no holidays.
+
+Only two rotation dates coincided between the two models in all of 2026.
+
+### Why it matters more than it sounds
+
+Trading a Monday rotation in a Wednesday window is two sessions late. The
+RUNBOOK prices one stale session at about -10 bps and two at about -18 bps, but
+the dispersion is the real cost: a one-session-stale panel picks a different
+name **56% of the time**. Two sessions is worse. This is not a rounding error on
+a 4-to-8 name book.
+
+### What to build
+
+Rotate when *both* conditions hold: at least `hold_days` sessions have elapsed
+AND today is the target weekday. That makes the schedule a calendar, publishable
+in advance, and immune to holiday drift — at the cost of a hold that varies
+between 40 and 44 sessions.
+
+Check before adopting:
+- what the varying hold costs against the fixed-40 baseline (the `top_n=8` row
+  of the sweep was flat from 5 to 63 sessions, so expect little);
+- that it still lands on the same weekday when a holiday falls ON the target day
+  — the rule needs a documented fallback, presumably the next session;
+- the interaction with tranching: at k=4 each sleeve rotates every 10 sessions,
+  so all four want the same weekday, two weeks apart.
+
+Until this exists, a parallel run should trade Track J on ITS rotation date
+rather than forcing it into the Tuesday/Wednesday window.
+
+---
+
+## 0k. The live runner does not implement tranching
+
+**Added 2026-09-20.** `run_live_trackj.py` produces a single book. The
+recommended configuration is **k=4 staggered sleeves**, which is what the
+phase-spread result (11.62pp -> 2.53pp) and the conviction-weighting result are
+measured on. The runner and the recommendation currently disagree.
+
+What it needs: four sleeve states, each with its own rotation date, a union book
+with per-name sleeve counts (that count IS the position weight, and multi-sleeve
+names annualised 31-35% against 14% for single-sleeve), and a clear statement of
+which sleeve rotates next.
+
+Until then the runner is a correct implementation of the k=1 variant, which is a
+real but strictly worse configuration — and the phase bet it leaves on the table
+is 11.62pp of CAGR.
+
+---
+
 ## 0g. A sell-side framework — volatility-guided trailing stop
 
 **Added 2026-09-20 at James's request.** Everything in this repo is entry-side:
