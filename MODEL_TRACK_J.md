@@ -9,9 +9,17 @@ tags: [model, momentum, reversal, track-j]
 
 > [!warning] Not live
 > This documents a **candidate**. The live model is still the RSI/MA composite
-> described in [[FINDINGS]]. The gate before go-live is the survivorship bound
-> ([[TODO#0d. Delisting simulation — bound the survivorship exposure on the wide pool|TODO 0d]])
-> plus items 1 and 2 of [[TODO#0h. Pre-production bug hypotheses for the Track J model — triage list|TODO 0h]].
+> described in [[FINDINGS]].
+>
+> Status 2026-09-20: the phase gate (TODO 0h.1) **passed** — the advantage holds
+> at 100% of rotation phases. The level floor (0h.2) is **dropped**. The
+> survivorship bound (0d) is **inconclusive and accepted as a known risk**.
+> Score-switching (0f) is **closed — it does not work**.
+>
+> The out-of-sample window test is the reason this is still a candidate: against
+> the live composite the advantage is **not statistically distinguishable**
+> (t = 1.34), it wins only 17 of 30 six-month windows, and the two most recent
+> full windows go heavily against it.
 
 ## In one paragraph
 
@@ -29,7 +37,7 @@ momentum combined with short-term reversal.
 flowchart TD
     A[("Price panel<br/>close, open, volume<br/>~750 US equities")] --> B{Compliance filter}
     B -->|"restricted.csv<br/>symbol · industry · issuer name"| C{Liquidity screen}
-    C -->|"median trailing $ volume ≥ $10M<br/>price ≥ $5"| D[Eligible pool<br/>~635 names]
+    C -->|"PER DATE:<br/>trailing $ volume ≥ $10M<br/>price ≥ $5"| D[Tradable that day<br/>~610 of 745 names]
 
     D --> E[Score construction]
     E --> F["flip = rank(3-month return)<br/>− rank(12-1 month return)"]
@@ -156,38 +164,90 @@ Everything is configurable; nothing below is hard-coded at a call site.
 | sizing | equal weight | Track I found no scheme beats it |
 | `vix` overlay | **off** | costs 3.4pp CAGR and 0.06 Sharpe on this score |
 | correlation filter | inherited | ⚠️ untested at this book/pool size — [[TODO]] 0h.4 |
-| `min_level_threshold` | inherited | ⚠️ still reads the old composite — [[TODO]] 0h.2 |
+| `min_level_threshold` | **dropped** | it read the OLD composite's scores; gating a new score on one we have no reason to trust is incoherent. Stage one measured it as near-inert (650.5 vs 652.2 eligible names). |
 
 ### Screens and costs
 
-| parameter | value |
-|---|---|
-| min trailing median dollar volume | $10M |
-| min price | $5 |
-| execution | next open |
-| cost model | `momentum/liquidity.py` — half-spread + square-root impact, point-in-time volume |
-| assumed account | $100,000 |
+| parameter | value | notes |
+|---|---|---|
+| min trailing dollar volume | $10M | **per date**, not full-sample |
+| min price | $5 | proxy for the exchange continued-listing minimum |
+| execution | next open | |
+| cost model | `momentum/liquidity.py` — half-spread + square-root impact | point-in-time volume |
+| assumed account | $100,000 | order size = account / `top_n` |
+
+> [!important] The screen is applied per date, and that matters
+> An earlier version selected pool membership from each name's **full-sample**
+> median dollar volume. That is look-ahead — a name earned its place in the 2010
+> cross-section because of volume it had in 2020 — and it quietly reintroduces
+> survivorship, since the names that stayed liquid are the ones that did well.
+> `liquidity.tradable_mask` now blanks the score on days a name fails either
+> floor, so it becomes unpickable and pickable again as conditions change.
+>
+> The price floor is also the delisting mitigation: the bound found that 37% of
+> cause-based delistings stop being tradable a median **95-100 sessions** before
+> they die.
 
 ## Measured performance
 
-635 liquid, compliance-filtered names, realistic per-name costs, overlay off.
+Per-date screened pool, compliance-filtered, per-name point-in-time costs,
+overlay off, `top_n=8`, `hold=42`.
 
 | arm | CAGR | Sharpe | Calmar | MaxDD | Vol |
 |---|---|---|---|---|---|
-| **this model** | **24.35%** | **0.65** | 0.43 | −56.5% | 30.5% |
-| own the pool equal-weighted | 14.81% | 0.55 | 0.37 | −40.5% | 18.8% |
-| random picks from same pool | 7.02% ±4.59 | 0.11 | 0.14 | −51.7% | 23.4% |
-| live RSI/MA composite | 3.14% | −0.05 | 0.06 | −53.6% | 27.7% |
+| **`flip_neg`** | **26.56%** | **0.69** | 0.51 | −52.6% | 32.0% |
+| `pullback` (+`range_pos`) | 21.46% | 0.66 | 0.46 | −46.8% | 25.8% |
+| live RSI/MA composite | 14.36% | 0.46 | 0.49 | −29.3% | 21.6% |
+| own the pool equal-weighted | 13.48% | 0.48 | 0.33 | −40.5% | 18.7% |
+| random picks from same pool | 11.92% ±2.89 | 0.36 | 0.29 | −42.8% | 20.6% |
 
-Ranking skill over its own random null, gross: **+16.52pp**, against **−3.44pp**
-for the live composite. Across a 20-cell parameter grid it beats the live score
-on CAGR in 95% of cells and on CAGR-and-Sharpe together in 80%.
+Ranking skill over its own random null, gross: **+14.84pp** for `flip_neg`,
++9.48pp for `pullback`, **+2.49pp** for the live composite. Across a 20-cell
+`top_n` × `hold` grid the new score beats live on CAGR in **95%** of cells and
+on CAGR-and-Sharpe together in **80%**.
+
+> [!warning] Quote the median, not the headline — phase is worth 10pp
+> The table above is **one rotation phase**. Across 14 sampled offsets the new
+> score's CAGR spans **13.16% to 23.35%**, a 10.19pp spread, against 0.71pp for
+> equal weight — so the dispersion is a rotation artifact, not the data. The
+> honest point estimate is the **median 21.56%**, and the 26.56% above is a
+> favourable draw. In live trading you get exactly one phase and cannot know in
+> advance which. See [[TODO]] 0i for the two ways to stop taking that bet.
+>
+> What *does* survive phase: the new score beats live at **100%** of sampled
+> phases and equal weight at 93%, worst phase still +1.00pp.
+
+### Out of sample, by 6-month window — the reason this is still a candidate
+
+Neither score has a parameter fitted on this data, so splitting the record into
+windows leaks nothing. 95 windows pooled across 3 rotation phases:
+
+| challenger | vs | win rate | median excess | t | worst window |
+|---|---|---|---|---|---|
+| `flip_neg` | live | 62% | +6.60% | **1.34** | −73.4% |
+| `flip_neg` | equal weight | 57% | +3.03% | 2.13 | −27.2% |
+| `pullback` | live | 64% | +5.21% | **1.62** | −53.1% |
+| `pullback` | equal weight | 56% | +2.58% | 2.86 | −22.4% |
+
+> [!danger] Against the live composite this is not statistically distinguishable
+> t = 1.34, and that figure is already **optimistic** because windows are pooled
+> across phases. It beat live in **17 of 30** calendar windows — a tilted coin.
+> The full-sample CAGR gap comes from a minority of windows winning big, not
+> from consistent superiority.
+>
+> **The two most recent full windows go heavily against it**: 2025-07 (live
+> +22.0% vs −7.6%) and 2026-01 (live +51.1% vs −0.2%). The live composite has
+> been strong lately.
+>
+> What survives: it beats *owning the pool* at t = 2.13 / 2.86, which is the
+> comparison Track F identified as the one that matters.
 
 > [!warning] Read the levels as inflated
 > Survivorship is unquantified and this construction is maximally exposed to it —
 > it buys dips, and the dips that were terminal are not in a pool built from
-> today's survivors. Deltas between arms on the same pool are sound; the absolute
-> 24% is not.
+> today's survivors. The bound (TODO 0d) was inconclusive and is accepted as a
+> known risk. Deltas between arms on the same pool are sound; the absolute level
+> is not.
 
 ## What this model is not
 
@@ -199,6 +259,15 @@ on CAGR in 95% of cells and on CAGR-and-Sharpe together in 80%.
   market cap, which is where that universe sits.
 - **Not validated out-of-sample.** Everything here is one history.
 
+## Open decisions before this could go live
+
+| | |
+|---|---|
+| `hold=40` instead of 42 | 40 is exactly 8 weeks, so rebalances land on a fixed, schedulable weekday instead of drifting two weekdays per cycle. The sweep shows `top_n=8` is a plateau across holds, so this should cost nothing. **Recommended.** |
+| which score | `flip_neg` leads on CAGR (26.56% vs 21.46%), `pullback` on Sharpe-per-unit-drawdown and on out-of-sample win rate (64% vs 62%). They swapped places when `top_n`/`hold` changed, so the ordering is not settled. |
+| allocation size | The out-of-sample result argues for a partial allocation rather than a wholesale switch. |
+| correlation filter | Inherited and untested at 8-from-635 — [[TODO]] 0h.4. |
+
 ## Related
 
 - [[FINDINGS]] — Track J stage one (the signal) and stage two (the backtest)
@@ -208,10 +277,18 @@ on CAGR in 95% of cells and on CAGR-and-Sharpe together in 80%.
 ## Reproducing
 
 ```bash
-python scripts/analyze_reversal_ic.py                                    # the signal
-python scripts/analyze_reversal_backtest.py --pool screened --trials 15  # the portfolio
-python scripts/analyze_reversal_backtest.py --pool screened --sweep      # the grid
-python scripts/analyze_delisting_bound.py --top-n 8 --hold 42            # survivorship
+# the signal
+python scripts/analyze_reversal_ic.py
+# the portfolio, at the chosen configuration
+python scripts/analyze_reversal_backtest.py --pool screened --trials 15 --top-n 8 --hold 42
+# the parameter grid (shape check, not an optimiser)
+python scripts/analyze_reversal_backtest.py --pool screened --sweep
+# rotation phase — the production gate, TODO 0h.1
+python scripts/analyze_rotation_phase.py --hold 42 --top-n 8
+# out of sample by window, and score-switching (TODO 0f)
+python scripts/analyze_walkforward_scores.py --top-n 8 --hold 42 --phases 3
+# survivorship bound (TODO 0d) — inconclusive, kept for the record
+python scripts/analyze_delisting_bound.py --top-n 8 --hold 42
 ```
 
 Each script runs its validation gates first and exits non-zero without reporting
