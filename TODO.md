@@ -493,6 +493,44 @@ if the replacement beats +2.3%.
 which is TODO 0d's real fix. Until then a stop is a judgement about tail risk
 this repo cannot measure, not a parameter it can optimise.
 
+### THE DECISION VERSION, 2026-09-20 — holding wins in every state measured
+
+`scripts/analyze_hold_vs_swap.py`. James reframed the question correctly: a
+position does not have to recover to be worth keeping, it only has to beat what
+the slot would otherwise hold. Conditioned on depth AND days remaining:
+
+**P(holding beats swapping into the best available non-held name)** — never
+below 50% in any of 19 cells, ranging 50% to 63%.
+
+**Mean return, holding minus swapping** — positive in every cell, +0.17% to
++4.82%, and LARGEST for deep positions with time left (beyond -4 vols with
+16-25 days: +2.99%; -4 to -3 vols with 26+ days: +4.82%).
+
+The deeply underwater positions are the ones most worth keeping.
+
+### Why this contradicts the recovery gradient, and which one to believe
+
+P(regains peak) collapses 86% -> 5% with depth. P(ends above the CURRENT price)
+is 53-64% in every cell, essentially flat with depth.
+
+These are consistent, and the first is **arithmetic rather than information**: a
+name 6 vols below its peak needs a 6-vol rally to recover, one 1 vol below needs
+1 vol. That gradient measures distance to a sunk reference point, not the name's
+prospects. The forward distribution from here is roughly independent of how it
+got here — which is what a near-random-walk looks like.
+
+**The peak is irrelevant to the decision.** Only the forward comparison is, and
+it says hold.
+
+That closes the stop question as originally posed. Any remaining case for an
+exit rule has to rest on drawdown reduction being worth paying for, not on
+avoiding losses — the data says an exit forgoes gains.
+
+Caveats: the modelled replacement ignores the correlation filter, so it is
+BETTER than the real alternative and holding still wins (conservative direction);
+position-days overlap heavily so the cells are descriptive; and the pool has no
+terminal declines, so the true tail is worse than this can show.
+
 ### A re-entry blackout is part of the rule, not a refinement
 
 **Raised by James 2026-09-20.** A stop that sells a name must hold it out for N
