@@ -381,19 +381,55 @@ def main() -> int:
     slip_now = slippage_panel(prices.close, volume, lcfg,
                               top_n=cfg.top_n).loc[session] * 10_000
 
-    def show(names, title):
+    ranks_now = score_now.rank(ascending=False, method="min")
+
+    def show(names, title, at=None):
+        """
+        `at` is the rotation date, when given.
+
+        A held book is selected on the rotation date and then carried, so its
+        names drift down the ranking as the cross-section moves under them.
+        Printing only TODAY's rank makes a name that was top-8 six weeks ago
+        look like a mistake -- SSL at rank 195 today was rank 8 or better when
+        it was bought. Showing both columns is the difference between "the
+        model picked badly" and "the model picked, and the world moved", which
+        are opposite readings and only the second is true by construction.
+        """
         print(f"\n  {title}")
-        hdr = (f"    {'symbol':<8}{'price':>10}{'score':>8}{'rank':>6}"
-               f"{'$vol (M)':>11}{'est bps':>9}")
+        show_at = at is not None and at in scored.index
+        if show_at:
+            score_at = scored.loc[at]
+            rank_at = score_at.rank(ascending=False, method="min")
+            px_at = prices.close.loc[at]
+            hdr = (f"    {'symbol':<8}{'price':>10}{'since buy':>11}"
+                   f"{'rank@buy':>10}{'rank now':>10}{'score now':>11}"
+                   f"{'$vol (M)':>10}{'est bps':>9}")
+        else:
+            hdr = (f"    {'symbol':<8}{'price':>10}{'score':>8}{'rank':>6}"
+                   f"{'$vol (M)':>11}{'est bps':>9}")
         print(hdr)
         print("    " + "-" * (len(hdr) - 4))
-        ranks = score_now.rank(ascending=False, method="min")
+
         for n in names:
-            print(f"    {n:<8}{close_now.get(n, float('nan')):>10.2f}"
-                  f"{score_now.get(n, float('nan')):>8.2f}"
-                  f"{ranks.get(n, float('nan')):>6.0f}"
-                  f"{adv_now.get(n, float('nan'))/1e6:>11.0f}"
-                  f"{slip_now.get(n, float('nan')):>9.1f}")
+            if show_at:
+                p0 = px_at.get(n, float("nan"))
+                p1 = close_now.get(n, float("nan"))
+                move = (p1 / p0 - 1) if p0 and p0 == p0 else float("nan")
+                drift = ""
+                r0, r1 = rank_at.get(n, float("nan")), ranks_now.get(n, float("nan"))
+                if r0 == r0 and r1 == r1 and r1 - r0 >= 50:
+                    drift = "  <- decayed"
+                print(f"    {n:<8}{p1:>10.2f}{move:>11.1%}"
+                      f"{r0:>10.0f}{r1:>10.0f}"
+                      f"{score_now.get(n, float('nan')):>11.2f}"
+                      f"{adv_now.get(n, float('nan'))/1e6:>10.0f}"
+                      f"{slip_now.get(n, float('nan')):>9.1f}{drift}")
+            else:
+                print(f"    {n:<8}{close_now.get(n, float('nan')):>10.2f}"
+                      f"{score_now.get(n, float('nan')):>8.2f}"
+                      f"{ranks_now.get(n, float('nan')):>6.0f}"
+                      f"{adv_now.get(n, float('nan'))/1e6:>11.0f}"
+                      f"{slip_now.get(n, float('nan')):>9.1f}")
 
     print("\n" + "=" * 100)
     print("SET 1 — THE ALIGNED BOOK  (this is the one to trade)")
@@ -417,7 +453,22 @@ def main() -> int:
         if not exact:
             print(f"                {remaining} sessions from now")
     show(held, f"{len(held)} positions, equal weight "
-               f"(${args.account/max(1,len(held)):,.0f} each)")
+               f"(${args.account/max(1,len(held)):,.0f} each) — "
+               f"selected {last_rebal:%Y-%m-%d}" if last_rebal is not None
+         else f"{len(held)} positions", at=last_rebal)
+
+    if last_rebal is not None and held:
+        held_ret = []
+        for n in held:
+            p0 = prices.close.loc[last_rebal].get(n, float("nan"))
+            p1 = close_now.get(n, float("nan"))
+            if p0 and p0 == p0 and p1 == p1:
+                held_ret.append(p1 / p0 - 1)
+        if held_ret:
+            spy0 = float(prices.spy.loc[:last_rebal].iloc[-1])
+            spy1 = float(prices.spy.loc[:session].iloc[-1])
+            print(f"\n    Book since selection: {np.mean(held_ret):+.2%} "
+                  f"equal-weighted, against SPY {spy1 / spy0 - 1:+.2%}")
 
     print("\n" + "=" * 100)
     print("SET 2 — FRESH RANKING on the latest close")
