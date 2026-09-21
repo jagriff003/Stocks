@@ -339,7 +339,7 @@ drawdown.
 
 ---
 
-## 0j. Anchor the rotation to a weekday, not a session count
+## 0j. Anchor the rotation to a weekday, not a session count — DONE 2026-09-20
 
 **Added 2026-09-20.** The production model rotates on a Tuesday 28 times out of
 its last 30, which fits the operating pattern exactly: run after Tuesday's
@@ -376,12 +376,15 @@ Check before adopting:
 - the interaction with tranching: at k=4 each sleeve rotates every 10 sessions,
   so all four want the same weekday, two weeks apart.
 
-Until this exists, a parallel run should trade Track J on ITS rotation date
-rather than forcing it into the Tuesday/Wednesday window.
+**DONE.** `momentum/schedule.py` defines rotations on the calendar — every N
+weeks on a named weekday, mapped forward onto real sessions, anchored to a known
+production rotation date so both models land on the same Tuesdays. Ten tests
+cover it, including that the weekday holds across holidays and that a fallback
+moves later rather than earlier.
 
 ---
 
-## 0k. The live runner does not implement tranching
+## 0k. The live runner does not implement tranching — DONE 2026-09-20
 
 **Added 2026-09-20.** `run_live_trackj.py` produces a single book. The
 recommended configuration is **k=4 staggered sleeves**, which is what the
@@ -393,9 +396,19 @@ with per-name sleeve counts (that count IS the position weight, and multi-sleeve
 names annualised 31-35% against 14% for single-sleeve), and a clear statement of
 which sleeve rotates next.
 
-Until then the runner is a correct implementation of the k=1 variant, which is a
-real but strictly worse configuration — and the phase bet it leaves on the table
-is 11.62pp of CAGR.
+**DONE.** The runner builds four sleeves from the calendar, prints each
+sleeve's book and selection date, the combined book weighted by how many sleeves
+hold each name, and which sleeve rotates next. The backtest block simulates the
+sleeves on the same calendar rather than the old session clock, so the metrics
+describe what is being traded: 20.81% CAGR, 0.73 Sharpe, -42.99% drawdown, which
+sits inside the tranching study's k=4 range of 20.66-23.19% as one realisation
+rather than a median.
+
+Two effects fell out of it. The health monitor went from **ALARM** (126d excess
+-19.3%) to **OK** (-2.0%), and the combined book's sector mix is Technology
+7/29, Energy 7/29, Basic Materials 7/29 with no majority — against a
+majority-Technology single book. Mean pairwise correlation across the combined
+book is 0.16 against 0.34 for the single book.
 
 ---
 

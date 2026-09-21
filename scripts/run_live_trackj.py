@@ -10,15 +10,27 @@ either, or both, on the same day.
     python scripts/run_live.py            # the model you trade today
     python scripts/run_live_trackj.py     # the candidate
 
+THE ROTATION CALENDAR
+
+Four sleeves of equal capital, one rotating every two weeks on a TUESDAY, so
+the book is built from Tuesday's close and traded at Wednesday's open. Each
+sleeve therefore holds eight weeks.
+
+The calendar is anchored to a production-model rotation date, which puts both
+models on the same Tuesdays — they can be run and traded together. A session
+count cannot do this: 40 sessions is eight weeks only when no holiday falls
+inside the cycle, and Track J's rotations drifted Tue/Mon/Mon/Tue/Mon/Mon before
+this. See `momentum/schedule.py`.
+
 WHAT IT PRINTS
 
-  SET 1  the ALIGNED book — what the model holds given its rotation clock. This
-         is the one to trade. It only changes on a rebalance date.
-  SET 2  the FRESH ranking on the latest close, which is what the model WOULD
-         buy if today were a rebalance. Between rotations these diverge, and
-         trading Set 2 off-cycle is a different (untested) strategy. Both are
-         printed so the gap is visible and acting on it is deliberate rather
-         than accidental — same reasoning as `run_live.py`.
+  SET 1  the COMBINED book across all four sleeves, with each name's weight set
+         by how many sleeves hold it. Names held by more than one sleeve carry
+         more weight, which is deliberate: names that keep re-qualifying
+         returned 31-35% annualised against 14% for single-sleeve names.
+  SET 2  what the NEXT sleeve to rotate would buy on the latest close. It is not
+         today's trade unless today is a rotation date, and trading it off-cycle
+         is a different (untested) strategy.
 
 WHAT IT RECORDS
 
@@ -52,13 +64,15 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from momentum.backtest import build_target_portfolios
+from momentum.backtest import _PortfolioBuilder, build_target_portfolios
 from momentum.config import snapshot_config
 from momentum.data import PriceData
 from momentum.experiments import production_config
 from momentum.liquidity import (LiquidityConfig, apply_tradable, dollar_volume,
                                 realized_vol, slippage_panel, tradable_mask)
 from momentum.pool_snapshot import coverage, snapshot_pool
+from momentum.schedule import (TUESDAY, current_sleeves, next_rotation,
+                               rotation_dates, sleeve_assignment)
 from momentum.restrictions import check_symbols
 from momentum.restrictions import describe as describe_restrictions
 from momentum.reversal import ReversalConfig, build_terms, composite
@@ -91,8 +105,11 @@ def build_config(top_n: int, hold: int):
     Every departure from `production_config()` is a recorded decision:
       vix=None            the overlay costs 3.4pp CAGR on this score
       top_n=8             plateau rather than peak on the parameter grid
-      hold_days=40        8 whole weeks, so the rebalance weekday is fixed
-      correlation        absolute 0.70, every rebalance (swept 0.60-0.80)
+      correlation         absolute 0.70, every rebalance (swept 0.60-0.80)
+
+    `hold_days` survives only for the eligibility gate inside
+    `_PortfolioBuilder`; the live rotation is driven by the calendar in
+    `momentum/schedule.py`, not by a session count.
     The level floor is switched off at the call site by passing base=None.
     """
     from momentum.config import CorrelationConfig
@@ -111,8 +128,19 @@ def build_config(top_n: int, hold: int):
 
 def main() -> int:
     p = argparse.ArgumentParser(description="Run the Track J pullback model")
-    p.add_argument("--top-n", type=int, default=8)
-    p.add_argument("--hold", type=int, default=40)
+    p.add_argument("--top-n", type=int, default=8,
+                   help="names per sleeve")
+    p.add_argument("--tranches", type=int, default=4,
+                   help="staggered sleeves; 4 is production")
+    p.add_argument("--every-weeks", type=int, default=2,
+                   help="weeks between rotations; one sleeve rotates each time")
+    p.add_argument("--anchor", default="2026-09-15",
+                   help="a known rotation date to align the phase to. The "
+                        "default is a production-model rotation, so both "
+                        "models rotate on the same Tuesdays.")
+    p.add_argument("--hold", type=int, default=40,
+                   help="session-count hold, used only by the backtest "
+                        "reference block; the live book uses the calendar")
     p.add_argument("--start", default="2010-01-01")
     p.add_argument("--min-adv", type=float, default=10e6)
     p.add_argument("--min-price", type=float, default=5.0)
@@ -201,52 +229,126 @@ def main() -> int:
     print(f"Tradable today: {tradable_today} names "
           f"(ADV >= ${args.min_adv/1e6:.0f}M, price >= ${args.min_price:.0f})")
 
-    # --- the rotation clock ---
-    # `base_composite_scores=None` switches off the level floor, per TODO 0h.2.
-    targets, history = build_target_portfolios(
-        scored,
-        price_columns=list(prices.close.columns),
+    # --- per-name state as of the signal session ---
+    close_now = prices.close.loc[session]
+    score_now = scored.loc[session]
+    ranks_now = score_now.rank(ascending=False, method="min")
+    adv_now = dollar_volume(prices.close, volume, lcfg.adv_window).loc[session]
+    slip_now = slippage_panel(prices.close, volume, lcfg,
+                              top_n=cfg.top_n).loc[session] * 10_000
+
+    # Daily volatility, for sizing a stop and for reading a drawdown.
+    #
+    # A move expressed in percent is a different thing for every name: -8% is
+    # noise on a 5%/day semiconductor and a thesis break on a 1%/day utility.
+    vol_now = realized_vol(prices.close, lcfg.vol_window).loc[session]
+
+    def show(names, title):
+        print()
+        print(f"  {title}")
+        hdr = (f"    {'symbol':<8}{'price':>10}{'score':>8}{'rank':>6}"
+               f"{'vol/day':>9}{'$vol (M)':>11}{'est bps':>9}")
+        print(hdr)
+        print("    " + "-" * (len(hdr) - 4))
+        for n in names:
+            print(f"    {n:<8}{close_now.get(n, float('nan')):>10.2f}"
+                  f"{score_now.get(n, float('nan')):>8.2f}"
+                  f"{ranks_now.get(n, float('nan')):>6.0f}"
+                  f"{float(vol_now.get(n, float('nan'))):>9.2%}"
+                  f"{adv_now.get(n, float('nan'))/1e6:>11.0f}"
+                  f"{slip_now.get(n, float('nan')):>9.1f}")
+
+    # --- the rotation calendar ---
+    #
+    # Calendar, not session count. `hold_days=40` was chosen because 40
+    # sessions is eight weeks, but that only holds when no market holiday falls
+    # inside the cycle -- each one pushes the rotation a weekday, so it drifted
+    # Tue/Mon/Mon/Tue/Mon/Mon. Anchoring to a weekday makes the schedule
+    # publishable in advance, and anchoring to a PRODUCTION rotation date makes
+    # both models rotate on the same Tuesdays so they can be run and traded
+    # together.
+    rot = rotation_dates(prices.close.index, weekday=TUESDAY,
+                         every_weeks=args.every_weeks,
+                         anchor=pd.Timestamp(args.anchor))
+    if len(rot) == 0:
+        print("\n  *** no rotation dates on this panel ***")
+        return 3
+    assign = sleeve_assignment(rot, args.tranches)
+    sleeves = current_sleeves(rot, args.tranches, as_of=session)
+
+    builder = _PortfolioBuilder(
+        scored, price_columns=list(prices.close.columns),
         top_n=cfg.top_n, min_data_days=cfg.min_data_days,
-        hold_days=cfg.hold_days,
-        vix_data=prices.vix, vix_config=cfg.vix,
-        base_composite_scores=None,
-        velocity_config=cfg.velocity,
-        correlation_config=cfg.correlation,
-        graduated_config=cfg.graduated_vix, exit_config=cfg.exits,
-        close=prices.close, rank_offset=cfg.rank_offset,
+        hold_days=cfg.hold_days, vix_data=prices.vix, vix_config=cfg.vix,
+        base_composite_scores=None, velocity_config=cfg.velocity,
+        correlation_config=cfg.correlation, graduated_config=cfg.graduated_vix,
+        exit_config=None, close=prices.close, rank_offset=cfg.rank_offset,
         rank_offset_scope=cfg.rank_offset_scope,
-        monitor_symbols=cfg.monitor_symbols,
-    )
+        monitor_symbols=cfg.monitor_symbols)
 
-    # --- simulate, so the metrics and charts describe THIS configuration ---
-    slip_panel = slippage_panel(prices.close, volume, lcfg, top_n=cfg.top_n)
-    result = simulate_portfolio(targets, prices.close, prices.open_,
-                                execution=cfg.execution, sizing=cfg.sizing,
-                                scores=scored, slippage_by_symbol=slip_panel)
-    result.rebalance_history = history
+    sleeve_books = {}
+    for j in sorted(sleeves):
+        rec = builder.select_on(sleeves[j])
+        sleeve_books[j] = list(rec["Selected_Stocks"]) if rec else []
 
-    print("\n=== REBALANCE HISTORY ===")
-    tail = history[-args.show_rebalances:] if args.show_rebalances else []
-    print(f"  {len(history)} rotations since {history[0]['Date']:%Y-%m-%d}; "
-          f"showing last {len(tail)}:")
-    for rec in tail:
-        print(f"    {rec['Date']:%Y-%m-%d} "
-              f"{', '.join(rec['Selected_Stocks'])}")
+    from collections import Counter
+    counts = Counter()
+    for names in sleeve_books.values():
+        counts.update(names)
+    held = sorted(counts, key=lambda n: (-counts[n], n))
 
-    m, tno = result.metrics, result.turnover
-    gross = calculate_performance_metrics(
-        result.gross_returns, risk_free_rate=cfg.execution.risk_free_rate)
-    print("\n=== STRATEGY RESULTS ===")
-    print("  Backtest of THIS configuration on the current pool. Levels are")
-    print("  inflated by survivorship (TODO 0d), and this is ONE rotation phase")
-    print("  of %d -- phase is worth ~10pp of CAGR. Read deltas, not levels."
-          % cfg.hold_days)
+    nxt_date, nxt_sleeve, projected = next_rotation(
+        rot, args.tranches, prices.close.index, weekday=TUESDAY,
+        every_weeks=args.every_weeks, as_of=session)
+
+    # --- simulate the ACTUAL configuration: k sleeves on the calendar ---
+    #
+    # Not `build_target_portfolios`, which runs a session-count clock. This
+    # rebuilds each sleeve's history from the same rotation calendar the live
+    # book uses, so the metrics below describe the thing being traded rather
+    # than a neighbouring configuration.
+    print("=== SIMULATING THE SLEEVES ===", flush=True)
+    slip_sleeve = slippage_panel(prices.close, volume, lcfg,
+                                 top_n=cfg.top_n * args.tranches)
+    sleeve_rets, sleeve_hold, sleeve_cost = [], [], 0.0
+    for j in range(args.tranches):
+        mine = [d for d in rot if assign[d] == j]
+        picks = {}
+        for d in mine:
+            rec = builder.select_on(d)
+            if rec:
+                picks[d] = list(rec["Selected_Stocks"])
+        if not picks:
+            continue
+        tgt = pd.Series({d: picks[d] for d in sorted(picks)}, dtype=object)
+        tgt = tgt.reindex(prices.close.index).ffill().dropna()
+        r = simulate_portfolio(tgt, prices.close, prices.open_,
+                               execution=cfg.execution, sizing=cfg.sizing,
+                               scores=scored, slippage_by_symbol=slip_sleeve)
+        sleeve_rets.append(r.returns.rename(f"s{j}"))
+        sleeve_hold.append(r.holdings)
+        sleeve_cost += r.total_cost
+        print(f"    sleeve {j}: {len(picks)} rotations, "
+              f"{len(r.returns)} days", flush=True)
+
+    if not sleeve_rets:
+        print("  *** no sleeve produced a return stream ***")
+        return 3
+
+    combined = pd.concat(sleeve_rets, axis=1).mean(axis=1).dropna()
+    m = calculate_performance_metrics(
+        combined, risk_free_rate=cfg.execution.risk_free_rate)
+
+    print("=== STRATEGY RESULTS ===")
+    print(f"  {args.tranches} sleeves, equal capital, rotating every "
+          f"{args.every_weeks} weeks on a Tuesday.")
+    print("  Levels are inflated by survivorship (TODO 0d) and by the fact that")
+    print("  this configuration was selected on the full sample. Read deltas.")
     rows = [
         ("CAGR", "%10.2f%%" % (100 * m["cagr"]), "^ higher",
-         "gross of costs %.2f%%; the phase median is the honest figure"
-         % (100 * gross["cagr"])),
+         "tranched, so this is near the phase MEDIAN rather than one draw"),
         ("Volatility", "%10.2f%%" % (100 * m["volatility"]), "v lower",
-         "runs hotter than the 46-name model -- 8 names out of ~610"),
+         "hotter than the 46-name model: 8 names per sleeve out of ~610"),
         ("Sharpe Ratio", "%10.2f" % m["sharpe_ratio"], "^ higher",
          "the constraint: must not be worse than what it replaces"),
         ("Sortino Ratio", "%10.2f" % m["sortino_ratio"], "^ higher",
@@ -256,59 +358,57 @@ def main() -> int:
         ("Calmar Ratio", "%10.2f" % m["calmar_ratio"], "^ higher",
          "CAGR per unit of worst hole"),
         ("Trading Days", "%10d" % m["num_periods"], "n/a",
-         "~%d independent %d-day holds"
-         % (m["num_periods"] // cfg.hold_days, cfg.hold_days)),
+         "sample size"),
     ]
     for name, val, arrow, why in rows:
         print("  %-14s%s   %s" % (name, val, arrow))
         print("  %-14s%10s   %s" % ("", "", why))
+    print("  %-14s%10.2f%%   cumulative slippage across all sleeves"
+          % ("Slippage", 100 * sleeve_cost))
 
-    print("\n  --- turnover: what it cost to get the above ---")
-    print("  Trades / year  %10.1f   v lower better" % tno["trades_per_year"])
-    print("  Avg hold       %10.1f days  against a %d-session clock"
-          % (tno["avg_hold_days"], cfg.hold_days))
-    print("  Annual turnover%10.1f%%   v lower better"
-          % (100 * tno["annual_turnover"]))
-    print("  Slippage paid  %10.2f%%   per-name liquidity model, already "
-          "deducted above" % (100 * result.total_cost))
+    # --- union holdings, for the health monitor and the charts ---
+    union = {}
+    for hs in sleeve_hold:
+        for d, names in hs.items():
+            union.setdefault(d, set()).update(names)
+    holdings = pd.Series({d: sorted(v) for d, v in sorted(union.items())},
+                         dtype=object)
 
     # --- exports ---
-    print("\n=== EXPORTING RESULTS ===")
+    print("=== EXPORTING RESULTS ===")
     out = REPO_ROOT
-    exports = {
-        "trackj_portfolio_performance.csv": pd.DataFrame({
-            "Date": result.returns.index,
-            "Portfolio_Return": result.returns.values,
-            "Gross_Return": result.gross_returns.values,
-            "Holdings": result.holdings.values}),
-        "trackj_rebalance_history.csv": pd.DataFrame(history),
-        "trackj_individual_stock_performance.csv":
-            individual_stock_performance(prices.close),
-    }
     written = []
     try:
-        for name, frame in exports.items():
-            frame.to_csv(out / name, index=False)
-            written.append(name)
+        pd.DataFrame({"Date": combined.index,
+                      "Portfolio_Return": combined.values}).to_csv(
+            out / "trackj_portfolio_performance.csv", index=False)
+        written.append("trackj_portfolio_performance.csv")
+        pd.DataFrame([{"Date": d, "Sleeve": assign[d],
+                       "Holdings": " ".join(
+                           (builder.select_on(d) or {}).get(
+                               "Selected_Stocks", []))}
+                      for d in rot[-24:]]).to_csv(
+            out / "trackj_rebalance_history.csv", index=False)
+        written.append("trackj_rebalance_history.csv")
         scored.to_csv(out / "trackj_scores.csv")
         written.append("trackj_scores.csv")
+        individual_stock_performance(prices.close).to_csv(
+            out / "trackj_individual_stock_performance.csv", index=False)
+        written.append("trackj_individual_stock_performance.csv")
     except Exception as exc:
         print("  *** export failed: %s: %s ***" % (type(exc).__name__, exc))
         degraded.note("exports", exc)
     missing = [n for n in written if not (out / n).exists()]
     if missing:
-        print("  *** %d of %d EXPORTS FAILED ***" % (len(missing), len(written)))
-        for n in missing:
-            print("    MISSING  %s" % n)
-        degraded.note("exports", RuntimeError("missing: %s" % missing))
+        print("  *** %d EXPORTS FAILED ***" % len(missing))
+        degraded.note("exports", RuntimeError(str(missing)))
     else:
         print("  %d files exported OK -> %s" % (len(written), out))
 
-    # --- correlation and sector mix of the HELD book ---
-    print("\n=== CORRELATION ===")
+    # --- correlation and sector mix of the COMBINED book ---
+    print("=== CORRELATION ===")
     try:
-        held_now = list(targets.loc[session]) if session in targets.index else []
-        cols = [h for h in held_now if h in prices.close.columns]
+        cols = [h for h in held if h in prices.close.columns]
         mats = correlation_matrices(prices.close[cols]) if len(cols) > 1 else {}
         for period, matrix in mats.items():
             matrix.to_csv(out / ("trackj_correlation_%dd.csv" % period))
@@ -316,18 +416,17 @@ def main() -> int:
             print(summarize_correlations(mats[args.corr_window],
                                          args.corr_window,
                                          threshold=args.corr_threshold))
-        print("  %d windows exported for the held book" % len(mats))
-
+        print("  %d windows exported for the combined book" % len(mats))
+        print("  NOTE: the 0.70 cap is applied WITHIN a sleeve. Across sleeves")
+        print("  a correlated pair can reappear, which is the price of")
+        print("  staggering and is not a defect.")
         secs = pd.read_csv(REPO_ROOT / POOL_FILE).set_index("symbol")["sector"]
-        mix = pd.Series([secs.get(h) for h in held_now]).dropna().value_counts()
+        mix = pd.Series([secs.get(h) for h in held]).dropna().value_counts()
         if len(mix):
-            print("\n  Sector mix of the held book:")
+            print("  Sector mix of the combined book:")
             for sec, n in mix.items():
-                flag = "   <-- MAJORITY" if n / len(held_now) >= 0.5 else ""
-                print("    %-26s%d/%d%s" % (sec, n, len(held_now), flag))
-            if mix.iloc[0] / len(held_now) >= 0.5:
-                print("  The correlation filter constrains CORRELATION, not")
-                print("  SECTOR, and is gated above VIX 25 (TODO 0h.4).")
+                flag = "   <-- MAJORITY" if n / len(held) >= 0.5 else ""
+                print("    %-26s%d/%d%s" % (sec, n, len(held), flag))
     except Exception as exc:
         print("  (correlation skipped: %s: %s)" % (type(exc).__name__, exc))
         degraded.note("correlation", exc)
@@ -341,162 +440,83 @@ def main() -> int:
             from momentum.context import report as context_report
             print()
             print(context_report(ctx.close, prices.spy, CONTEXT_SERIES,
-                                 model_returns=result.returns,
-                                 horizon=cfg.hold_days))
+                                 model_returns=combined,
+                                 horizon=args.tranches * args.every_weeks * 5))
             if n_pool:
                 print("  (A/D computed over %d pool names)" % n_pool)
         except Exception as exc:
-            print("\n(Context skipped: %s: %s)" % (type(exc).__name__, exc))
+            print("(Context skipped: %s: %s)" % (type(exc).__name__, exc))
             degraded.note("context panel", exc)
 
     # --- health monitor ---
     try:
         hcfg = HealthConfig(risk_free_rate=cfg.execution.risk_free_rate)
-        health = compute_health(result.returns, prices.spy, hcfg)
+        health = compute_health(combined, prices.spy, hcfg)
         state = current_state(health, hcfg)
         print()
         print("=" * 100)
         print(status_line(state, hcfg))
-        exposure = defensive_exposure(result.holdings, hcfg)
-        print(defensive_line(defensive_state(exposure, hcfg), hcfg))
+        print(defensive_line(defensive_state(
+            defensive_exposure(holdings, hcfg), hcfg), hcfg))
         print("  NOTE: these thresholds were calibrated on the 46-name model.")
         print("  Displayed for this one, not validated for it (TODO 3).")
         print("=" * 100)
     except Exception as exc:
-        print("\n(Health monitor skipped: %s)" % exc)
+        print("(Health monitor skipped: %s)" % exc)
         degraded.note("health monitor", exc)
 
-    held = list(targets.loc[session]) if session in targets.index else []
-    last_rebal = None
-    for h in history:
-        d = pd.Timestamp(h["Date"])
-        if d <= session:
-            last_rebal = d
-    sessions_held = (len(prices.close.loc[last_rebal:session]) - 1
-                     if last_rebal is not None else None)
+    print("\n" + "=" * 100)
+    print(f"SET 1 — THE BOOK  ({args.tranches} sleeves, one rotating every "
+          f"{args.every_weeks} weeks)")
+    print("=" * 100)
+    print(f"  Rotation calendar: every {args.every_weeks} weeks on a TUESDAY, "
+          f"anchored to {args.anchor}.")
+    print(f"  Trade at Wednesday's open. Each sleeve holds "
+          f"{args.tranches * args.every_weeks} weeks.")
+    if nxt_date is not None:
+        print(f"\n  NEXT ROTATION: {nxt_date:%Y-%m-%d} ({nxt_date:%A}) — "
+              f"sleeve {nxt_sleeve}"
+              f"{'  [projected on the calendar]' if projected else ''}")
+        print(f"  Only that sleeve trades. The other "
+              f"{args.tranches - 1} are untouched.")
 
-    close_now = prices.close.loc[session]
-    adv_now = dollar_volume(prices.close, volume, lcfg.adv_window).loc[session]
-    score_now = scored.loc[session]
-    slip_now = slippage_panel(prices.close, volume, lcfg,
-                              top_n=cfg.top_n).loc[session] * 10_000
+    print(f"\n  Sleeves, oldest book first:")
+    for j in sorted(sleeve_books, key=lambda k: sleeves[k]):
+        age = int((prices.close.index > sleeves[j]).sum())
+        marker = "  <- rotates next" if j == nxt_sleeve else ""
+        print(f"    sleeve {j}: selected {sleeves[j]:%Y-%m-%d} "
+              f"({age} sessions ago){marker}")
+        print(f"              {', '.join(sleeve_books[j]) or '(empty)'}")
 
-    # Daily volatility, for sizing a stop.
-    #
-    # A stop expressed in percent is a different rule for every name: -8% is
-    # noise on a 4%/day biotech and a thesis break on a 1%/day utility. Sizing
-    # it in units of the name's own daily volatility is what makes one number
-    # mean the same thing across a book that spans both.
-    vol_daily = realized_vol(prices.close, lcfg.vol_window)
-    vol_now = vol_daily.loc[session]
+    print(f"\n  COMBINED BOOK — {len(held)} names, "
+          f"{args.tranches * cfg.top_n} sleeve-slots")
+    print(f"  A name held by more than one sleeve carries more weight. That is "
+          f"deliberate:\n  names that keep re-qualifying returned 31-35% "
+          f"annualised against 14% for\n  single-sleeve names.")
+    hdr = (f"    {'symbol':<8}{'sleeves':>9}{'weight':>9}{'$ at 100k':>11}"
+           f"{'price':>10}{'rank now':>10}{'vol/day':>9}{'bps':>7}")
+    print(hdr)
+    print("    " + "-" * (len(hdr) - 4))
+    total_slots = args.tranches * cfg.top_n
+    for n in held:
+        w = counts[n] / total_slots
+        print(f"    {n:<8}{counts[n]:>9}{w:>9.1%}"
+              f"{args.account * w:>11,.0f}"
+              f"{close_now.get(n, float('nan')):>10.2f}"
+              f"{ranks_now.get(n, float('nan')):>10.0f}"
+              f"{float(vol_now.get(n, float('nan'))):>9.2%}"
+              f"{slip_now.get(n, float('nan')):>7.1f}")
 
-    ranks_now = score_now.rank(ascending=False, method="min")
-
-    def show(names, title, at=None):
-        """
-        `at` is the rotation date, when given.
-
-        A held book is selected on the rotation date and then carried, so its
-        names drift down the ranking as the cross-section moves under them.
-        Printing only TODAY's rank makes a name that was top-8 six weeks ago
-        look like a mistake -- SSL at rank 195 today was rank 8 or better when
-        it was bought. Showing both columns is the difference between "the
-        model picked badly" and "the model picked, and the world moved", which
-        are opposite readings and only the second is true by construction.
-        """
-        print(f"\n  {title}")
-        show_at = at is not None and at in scored.index
-        if show_at:
-            score_at = scored.loc[at]
-            rank_at = score_at.rank(ascending=False, method="min")
-            px_at = prices.close.loc[at]
-            hdr = (f"    {'symbol':<8}{'price':>10}{'since buy':>11}"
-                   f"{'rank@buy':>9}{'rank now':>9}{'vol/day':>9}"
-                   f"{'peak':>8}{'vols off':>10}{'$vol (M)':>10}{'bps':>6}")
-        else:
-            hdr = (f"    {'symbol':<8}{'price':>10}{'score':>8}{'rank':>6}"
-                   f"{'vol/day':>9}{'$vol (M)':>11}{'est bps':>9}")
-        print(hdr)
-        print("    " + "-" * (len(hdr) - 4))
-
-        for n in names:
-            if show_at:
-                p0 = px_at.get(n, float("nan"))
-                p1 = close_now.get(n, float("nan"))
-                move = (p1 / p0 - 1) if p0 and p0 == p0 else float("nan")
-                drift = ""
-                r0, r1 = rank_at.get(n, float("nan")), ranks_now.get(n, float("nan"))
-                if r0 == r0 and r1 == r1 and r1 - r0 >= 50:
-                    drift = "  <- decayed"
-                # Peak since entry, and how far below it the name sits
-                # measured in its own daily volatilities. That last number is
-                # the one a trailing stop should key on.
-                path = prices.close[n].loc[at:session].dropna() \
-                    if n in prices.close.columns else pd.Series(dtype=float)
-                peak = float(path.max()) if len(path) else float("nan")
-                off = (p1 / peak - 1) if peak and peak == peak else float("nan")
-                v = float(vol_now.get(n, float("nan")))
-                vols_off = (off / v) if v and v == v and v > 0 else float("nan")
-                mark = drift
-                if vols_off == vols_off and vols_off <= -3.0:
-                    mark = "  <- %.1f vols off peak" % vols_off
-                print(f"    {n:<8}{p1:>10.2f}{move:>11.1%}"
-                      f"{r0:>9.0f}{r1:>9.0f}{v:>9.2%}"
-                      f"{off:>8.1%}{vols_off:>10.1f}"
-                      f"{adv_now.get(n, float('nan'))/1e6:>10.0f}"
-                      f"{slip_now.get(n, float('nan')):>6.1f}{mark}")
-            else:
-                print(f"    {n:<8}{close_now.get(n, float('nan')):>10.2f}"
-                      f"{score_now.get(n, float('nan')):>8.2f}"
-                      f"{ranks_now.get(n, float('nan')):>6.0f}"
-                      f"{float(vol_now.get(n, float('nan'))):>9.2%}"
-                      f"{adv_now.get(n, float('nan'))/1e6:>11.0f}"
-                      f"{slip_now.get(n, float('nan')):>9.1f}")
+    dupes = sum(1 for n in held if counts[n] > 1)
+    print(f"\n    {dupes} of {len(held)} names are held by more than one "
+          f"sleeve.")
 
     print("\n" + "=" * 100)
-    print("SET 1 — THE ALIGNED BOOK  (this is the one to trade)")
+    print("SET 2 — WHAT THE NEXT SLEEVE WOULD BUY, on the latest close")
     print("=" * 100)
-    if last_rebal is not None:
-        idx = prices.close.index
-        pos = idx.get_loc(last_rebal) + cfg.hold_days
-        if pos < len(idx):
-            nxt, exact = idx[pos], True
-        else:
-            # The rotation is in the future, so it is not in the panel yet.
-            # Project it on business days: an estimate, and labelled as one,
-            # because it does not account for market holidays.
-            remaining = cfg.hold_days - (sessions_held or 0)
-            nxt = pd.bdate_range(session, periods=remaining + 1)[-1]
-            exact = False
-        print(f"  last rotation {last_rebal:%Y-%m-%d} ({last_rebal:%A}), "
-              f"held {sessions_held} of {cfg.hold_days} sessions")
-        print(f"  next rotation {nxt:%Y-%m-%d} ({nxt:%A})"
-              f"{'' if exact else '  [estimated; business days, ignores holidays]'}")
-        if not exact:
-            print(f"                {remaining} sessions from now")
-    show(held, f"{len(held)} positions, equal weight "
-               f"(${args.account/max(1,len(held)):,.0f} each) — "
-               f"selected {last_rebal:%Y-%m-%d}" if last_rebal is not None
-         else f"{len(held)} positions", at=last_rebal)
-
-    if last_rebal is not None and held:
-        held_ret = []
-        for n in held:
-            p0 = prices.close.loc[last_rebal].get(n, float("nan"))
-            p1 = close_now.get(n, float("nan"))
-            if p0 and p0 == p0 and p1 == p1:
-                held_ret.append(p1 / p0 - 1)
-        if held_ret:
-            spy0 = float(prices.spy.loc[:last_rebal].iloc[-1])
-            spy1 = float(prices.spy.loc[:session].iloc[-1])
-            print(f"\n    Book since selection: {np.mean(held_ret):+.2%} "
-                  f"equal-weighted, against SPY {spy1 / spy0 - 1:+.2%}")
-
-    print("\n" + "=" * 100)
-    print("SET 2 — FRESH RANKING on the latest close")
-    print("=" * 100)
-    print("  What the model WOULD buy if today were a rotation date. Trading")
-    print("  this off-cycle is a different and untested strategy.")
+    print("  What the rotating sleeve would buy if today were its rotation")
+    print("  date. It is NOT today's trade unless today is a rotation date —")
+    print("  trading this off-cycle is a different and untested strategy.")
     # The DIVERSIFIED selection, not the raw top-N.
     #
     # Showing the raw ranking here would be actively misleading: with an
@@ -601,6 +621,78 @@ def main() -> int:
                     ax.set_ylabel("Rebased (100 = start)")
                     ax.grid(alpha=0.3)
                     ax.legend(loc="best", fontsize=9)
+                    held_fig.tight_layout()
+
+            ctx_fig = (plot_context(ctx.close, CONTEXT_SERIES)
+                       if ctx is not None else None)
+
+            if args.save_charts:
+                outdir = Path(args.save_charts)
+                outdir.mkdir(parents=True, exist_ok=True)
+                stamp = today.isoformat()
+                print("\nCharts written to %s:" % outdir)
+                for name, figure in (("performance", fig),
+                                     ("held-book", held_fig),
+                                     ("context", ctx_fig)):
+                    if figure is None:
+                        continue
+                    path = outdir / ("%s_trackj_%s.png" % (stamp, name))
+                    figure.savefig(path, dpi=110, bbox_inches="tight")
+                    print("  %s" % path.name)
+            else:
+                plt.show()
+            plt.close("all")
+        except Exception as exc:
+            print("\n(Charts skipped: %s: %s)" % (type(exc).__name__, exc))
+            degraded.note("charts", exc)
+
+    # --- charts ---
+    if not args.no_plots:
+        try:
+            import matplotlib.pyplot as plt
+
+            wealth = (1 + combined).cumprod()
+            fig, axes = plt.subplots(2, 1, figsize=(12, 8))
+            axes[0].plot(wealth.index, wealth.values, linewidth=1.6)
+            axes[0].set_title("Track J pullback, %d sleeves - cumulative return"
+                              % args.tranches)
+            axes[0].set_ylabel("Growth of $1")
+            axes[0].set_yscale("log")
+            axes[0].grid(alpha=0.3)
+            axes[1].plot(combined.index, combined.values * 100,
+                         linewidth=0.6, alpha=0.8)
+            axes[1].set_title("Daily returns (%)")
+            axes[1].grid(alpha=0.3)
+            plt.tight_layout()
+
+            held_fig = None
+            if held:
+                lookback = min(args.chart_days, len(prices.close))
+                sub = prices.close[[h for h in held
+                                    if h in prices.close.columns]]
+                sub = sub.iloc[-lookback:].dropna(axis=1, how="all")
+                if not sub.empty:
+                    held_fig, ax = plt.subplots(figsize=(13, 7))
+                    for sym in sub.columns:
+                        s = sub[sym].dropna()
+                        if s.empty:
+                            continue
+                        lw = 1.0 + 0.9 * (counts[sym] - 1)
+                        ax.plot(s.index, s / s.iloc[0] * 100.0, linewidth=lw,
+                                label="%s x%d  %+.1f%%"
+                                      % (sym, counts[sym],
+                                         100 * (s.iloc[-1] / s.iloc[0] - 1)))
+                    spy_w = prices.spy.reindex(sub.index).ffill().dropna()
+                    if not spy_w.empty:
+                        ax.plot(spy_w.index, spy_w / spy_w.iloc[0] * 100.0,
+                                linewidth=2.2, linestyle="--", color="black",
+                                alpha=0.6, label="SPY")
+                    ax.axhline(100, color="grey", linewidth=0.8, alpha=0.5)
+                    ax.set_title("Combined book, last %d sessions - rebased to "
+                                 "100 (line width = sleeves holding it)"
+                                 % lookback)
+                    ax.grid(alpha=0.3)
+                    ax.legend(loc="best", fontsize=7, ncol=2)
                     held_fig.tight_layout()
 
             ctx_fig = (plot_context(ctx.close, CONTEXT_SERIES)

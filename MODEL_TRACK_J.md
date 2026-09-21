@@ -7,7 +7,7 @@ tags: [model, momentum, reversal, track-j]
 
 # Track J model — pullback-in-uptrend
 
-**Selected score: `pullback`. Selected hold: 40 sessions (8 whole weeks).**
+**Selected score: `pullback`. Four sleeves, one rotating every two weeks on a Tuesday.**
 
 > [!warning] Baseline, not yet the traded model
 > Adopted as the **baseline** 2026-09-20 and run discretionarily alongside
@@ -164,7 +164,8 @@ Everything is configurable; nothing below is hard-coded at a call site.
 | parameter | value | why |
 |---|---|---|
 | `top_n` | **8** | plateau, not peak: CAGR varies only 2.3pp across holds at 8, against 21.4pp at `top_n=2` |
-| `hold_days` | **40** | exactly 8 weeks, so the rebalance lands on a fixed, schedulable weekday instead of drifting two weekdays per cycle. Verified against 42: `pullback` moves 21.46% -> 20.93% CAGR, inside noise. |
+| rotation | **every 2 weeks, TUESDAY, calendar-anchored** | a session count drifts: 40 sessions is 8 weeks only when no holiday falls inside the cycle, and rotations went Tue/Mon/Mon/Tue/Mon/Mon. Anchored to a production rotation date so both models rotate on the same Tuesdays. |
+| `tranches` | **4** | one sleeve rotates each cycle, so each holds 8 weeks. Phase spread 11.62pp -> 2.53pp, Sharpe 0.71 -> 0.80, turnover unchanged. |
 | sizing | equal weight | Track I found no scheme beats it |
 | `vix` overlay | **off** | costs 3.4pp CAGR and 0.06 Sharpe on this score |
 | correlation filter | **absolute 0.70, EVERY rebalance** | swept 0.60-0.80; 0.70 is a ridge, not a spike. +2.72pp CAGR, Sharpe 0.64 -> 0.78, turnover unchanged. Replaces the inherited relative-percentile rule gated at VIX>25, which left no diversification constraint in a normal regime. |
@@ -287,7 +288,7 @@ windows leaks nothing. 95 windows pooled across 3 rotation phases:
 | ~~`hold=40`~~ | **Decided 2026-09-20.** 8 whole weeks, fixed rebalance weekday. Verified: `pullback` 21.46% -> 20.93%, inside noise. |
 | ~~which score~~ | **Decided: `pullback`.** See below. |
 | allocation size | **Open.** The out-of-sample result (t = 1.34 against live) argues for a partial allocation rather than a wholesale switch. |
-| tranching | **k=4 recommended.** Four sleeves on staggered clocks, one rotating every 10 sessions (biweekly). Phase spread collapses 11.62pp -> 2.53pp, Sharpe 0.71 -> 0.80, median CAGR +0.63pp, turnover unchanged. ~17 names on an average day. |
+| ~~tranching~~ | **Implemented k=4.** Four sleeves on staggered clocks, one rotating every 10 sessions (biweekly). Phase spread collapses 11.62pp -> 2.53pp, Sharpe 0.71 -> 0.80, median CAGR +0.63pp, turnover unchanged. ~17 names on an average day. |
 | ~~correlation filter~~ | **Decided: absolute 0.70, every rebalance.** Superseded the earlier "keep the inherited gating" decision once the absolute rule was tested — the two are different rules and the first test conflated them. |
 
 ### Why `pullback` rather than `flip_neg`
