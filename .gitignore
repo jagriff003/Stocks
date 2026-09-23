@@ -7,6 +7,7 @@ __pycache__/
 *.xlsx
 *.csv
 .price_cache/
+charts/
 
 # ...but the universe and its dated snapshots are source, not output.
 # They stay tracked so universe changes show up as reviewable diffs.
