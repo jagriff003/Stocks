@@ -156,6 +156,9 @@ def main() -> int:
     p.add_argument("--no-plots", action="store_true")
     p.add_argument("--save-charts", metavar="DIR", default=None,
                    help="write charts as PNGs instead of opening windows")
+    p.add_argument("--show", action="store_true",
+                   help="with --save-charts, ALSO open the charts (interactive use; "
+                        "a scheduled run must not pass this, or it blocks)")
     p.add_argument("--no-context", action="store_true")
     p.add_argument("--no-breadth", action="store_true")
     p.add_argument("--chart-days", type=int, default=252)
@@ -164,7 +167,7 @@ def main() -> int:
     p.add_argument("--corr-threshold", type=float, default=0.70)
     args = p.parse_args()
 
-    if args.save_charts:
+    if args.save_charts and not args.show:
         import matplotlib
         matplotlib.use("Agg")
 
@@ -700,7 +703,7 @@ def main() -> int:
                     path = outdir / ("%s_trackj_%s.png" % (stamp, name))
                     figure.savefig(path, dpi=110, bbox_inches="tight")
                     print("  %s" % path.name)
-            else:
+            if not args.save_charts or args.show:
                 plt.show()
             plt.close("all")
         except Exception as exc:

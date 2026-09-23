@@ -33,6 +33,23 @@ with `scripts/record_decision.py` without re-running the models — what was
 actually done and why.  Discretion is the point of option
 (a); the log is what lets it be measured instead of remembered.
 
+CHARTS (default: shown AND saved to charts/)
+
+  YYYY-MM-DD_combined_trigger.png     each trigger asset's 3-month excess over
+                                      SPY against the +10% line, the stock-bond
+                                      correlation against zero, firing shaded
+  YYYY-MM-DD_combined_allocation.png  the recommended allocation(s), with Track
+                                      J's energy & materials split out because
+                                      they overlap Track K's bet
+
+Track J's own charts (performance, held book, context) are opened alongside
+when `run_live_trackj.py --save-charts charts` has saved them for the same
+session — the saved images, not a recomputation, so what you see is exactly
+what Track J produced.  They are not re-saved.
+
+`--no-show` saves without opening windows (for a scheduled run, which would
+otherwise block on plt.show()); `--no-plots` skips charts entirely.
+
 Exit status follows RUNBOOK: 0 clean; 2 printed but something is stale or
 flagged; anything else is a failure.
 
@@ -56,7 +73,9 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from momentum import marketstore as ms  # noqa: E402
 from momentum.schedule import TUESDAY, rotation_dates  # noqa: E402
-from momentum.trackk import LIVE_CONFIG, combine, recommendations  # noqa: E402
+from momentum.hedge import regime_open, trailing_return  # noqa: E402
+from momentum.trackk import (LIVE_CONFIG, LIVE_SYMBOL, assets_from_store,  # noqa: E402
+                             combine, recommendations)
 
 BOOK_FILE = REPO_ROOT / "live" / "trackj_book.json"
 LOG_FILE = REPO_ROOT / "data" / "decisions" / "decision_log.csv"
@@ -97,6 +116,161 @@ def show_allocation(label, alloc, account):
           f"{alloc['weight'].sum():>9.1%}{account * alloc['weight'].sum():>12,.0f}")
 
 
+# --- charts -------------------------------------------------------------------
+#
+# Colours are the reference palette's categorical slots, used in their
+# validated order so adjacent stacked segments are pairs that were checked;
+# every segment and every line end also carries a text label, so identity
+# never rests on colour alone.  Colour follows the entity: gold is the same
+# blue in both charts.  Text stays in ink, never in a series colour.
+SURFACE, INK, INK2, GRID, SHADE = "#fcfcfb", "#0b0b0b", "#52514e", "#e4e3df", "#ecebe7"
+ENTITY = {
+    "GOLD": ("gold", "#2a78d6"), "SILVER": ("silver", "#eb6834"),
+    "CMDTY": ("commodities", "#1baf7a"), "ENERGY": ("energy", "#eda100"),
+    "K_OTHER": ("Track K other", "#e87ba4"),
+    "J_REAL": ("Track J energy & materials", "#008300"),
+    "J_OTHER": ("Track J other stocks", "#4a3aa7"),
+}
+ROLE_OF_LIVE = {v: k for k, v in LIVE_SYMBOL.items()}
+
+
+def _style(ax):
+    ax.set_facecolor(SURFACE)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_color(GRID)
+    ax.tick_params(colors=INK2, labelsize=9)
+    ax.grid(axis="y", color=GRID, linewidth=0.8)
+    ax.set_axisbelow(True)
+
+
+def _shade(ax, fire):
+    on = fire.astype(int).diff().fillna(fire.iloc[0]).ne(0).cumsum()[fire]
+    for _, span in fire[fire].groupby(on):
+        ax.axvspan(span.index[0], span.index[-1], color=SHADE, zorder=0, linewidth=0)
+
+
+def chart_trigger(store, last_rot, path, days=252):
+    import matplotlib.pyplot as plt
+    import matplotlib.ticker as mt
+    cfg = LIVE_CONFIG
+    market = store[ms.REFERENCE].dropna()
+    assets = assets_from_store(store)
+    tr = trailing_return(assets, cfg.lookback)
+    tm = trailing_return(market.to_frame("m"), cfg.lookback)["m"]
+    excess = tr[list(cfg.regime_assets)].sub(tm, axis=0).iloc[-days:]
+    fire = pd.Series(regime_open(market, assets, cfg), index=market.index).iloc[-days:]
+    corr = market.rolling(cfg.corr_window, min_periods=cfg.corr_window).corr(
+        assets[cfg.regime_corr_asset]).iloc[-days:]
+
+    fig, (a1, a2) = plt.subplots(2, 1, figsize=(11, 7.2), sharex=True,
+                                 gridspec_kw={"height_ratios": [2.2, 1]})
+    fig.patch.set_facecolor(SURFACE)
+    for ax in (a1, a2):
+        _style(ax)
+        _shade(ax, fire)
+        ax.axvline(last_rot, color=INK2, linewidth=1, linestyle=":")
+    ends = []
+    for role in cfg.regime_assets:
+        name, color = ENTITY[role]
+        s = excess[role]
+        a1.plot(s.index, s.values, color=color, linewidth=2, label=name)
+        a1.plot(s.index[-1], s.iloc[-1], "o", color=color, markersize=8,
+                markeredgecolor=SURFACE, markeredgewidth=2)
+        ends.append([s.iloc[-1], f"{name} {s.iloc[-1]:+.0%}", color])
+    a1.axhline(cfg.enter_margin, color=INK2, linewidth=1.2, linestyle="--")
+    a1.annotate(f"+{cfg.enter_margin:.0%} margin", (excess.index[0], cfg.enter_margin),
+                xytext=(2, 5), textcoords="offset points", fontsize=8.5, color=INK2,
+                bbox=dict(facecolor=SURFACE, edgecolor="none", pad=1.5))
+    # labels at the right edge, spread so none overlap; a thin leader ties each
+    # label to its line end
+    lo, hi = a1.get_ylim()
+    gap = (hi - lo) * 0.055
+    ends.sort(key=lambda e: e[0])
+    placed = []
+    for v, _, _ in ends:
+        placed.append(max(v, placed[-1] + gap) if placed else v)
+    x_end = excess.index[-1]
+    x_lab = x_end + pd.Timedelta(days=12)
+    for (v, text, color), y in zip(ends, placed):
+        a1.plot([x_end, x_lab], [v, y], color=color, linewidth=0.8)
+        a1.annotate(text, (x_lab, y), xytext=(3, 0), textcoords="offset points",
+                    va="center", fontsize=9, color=INK)
+    a1.axhline(0, color=INK2, linewidth=0.8)
+    a1.yaxis.set_major_formatter(mt.PercentFormatter(1.0, decimals=0))
+    a1.set_title("Track K trigger: 3-month return over SPY, the four trigger assets\n"
+                 "Fires when 2+ clear the dashed line (and beat cash) while the stock-bond "
+                 "correlation is above 0.\nShaded = firing.  Dotted = last rotation.",
+                 loc="left", fontsize=10, color=INK)
+    a1.legend(loc="upper left", frameon=False, fontsize=8.5, ncol=4, labelcolor=INK2)
+
+    a2.plot(corr.index, corr.values, color=INK2, linewidth=2)
+    a2.axhline(0, color=INK2, linewidth=1.2, linestyle="--")
+    a2.annotate(f"{corr.iloc[-1]:+.2f}", (corr.index[-1], corr.iloc[-1]), xytext=(8, 0),
+                textcoords="offset points", va="center", fontsize=9, color=INK)
+    a2.set_title("Stock-bond correlation, 1 year (SPY vs 10-year Treasuries) - needs to be above 0",
+                 loc="left", fontsize=10, color=INK)
+    fig.tight_layout()
+    fig.subplots_adjust(right=0.84)
+    fig.savefig(path, dpi=110, facecolor=SURFACE)
+    return fig
+
+
+def _buckets(alloc, sectors):
+    out = {k: 0.0 for k in ENTITY}
+    for sym, r in alloc.iterrows():
+        if r["Track K"] > 0:
+            role = ROLE_OF_LIVE.get(sym)
+            out[role if role in ("GOLD", "SILVER", "CMDTY", "ENERGY") else "K_OTHER"] += r["Track K"]
+        if r["Track J"] > 0:
+            real = sectors.get(sym) in ("Energy", "Basic Materials")
+            out["J_REAL" if real else "J_OTHER"] += r["Track J"]
+    return out
+
+
+def chart_allocation(rows, sectors, path):
+    """rows: list of (label, allocation frame), drawn top to bottom."""
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(11, 1.6 + 1.1 * len(rows)))
+    fig.patch.set_facecolor(SURFACE)
+    _style(ax)
+    ax.grid(False)
+    ax.spines["left"].set_visible(False)
+    order = list(ENTITY)
+    drawn = set()
+    for i, (label, alloc) in enumerate(rows):
+        b = _buckets(alloc, sectors)
+        left = 0.0
+        y = len(rows) - 1 - i
+        for key in order:
+            w = b[key]
+            if w <= 1e-9:
+                continue
+            name, color = ENTITY[key]
+            drawn.add(key)
+            ax.barh(y, w, left=left, height=0.5, color=color, edgecolor=SURFACE, linewidth=2)
+            if w >= 0.06:
+                dark = key in ("GOLD", "J_REAL", "J_OTHER", "SILVER")
+                ax.text(left + w / 2, y, f"{name}\n{w:.0%}", ha="center", va="center",
+                        fontsize=8.5, color="#ffffff" if dark else INK)
+            left += w
+    ax.set_yticks(range(len(rows)))
+    ax.set_yticklabels([r[0] for r in rows][::-1], fontsize=9.5, color=INK)
+    ax.set_xlim(0, 1)
+    ax.xaxis.set_major_formatter(__import__("matplotlib.ticker", fromlist=["x"]).PercentFormatter(1.0))
+    keys = [k for k in order if k in drawn]
+    handles = [plt.Rectangle((0, 0), 1, 1, color=ENTITY[k][1]) for k in keys]
+    ax.legend(handles, [ENTITY[k][0] for k in keys], loc="upper center",
+              bbox_to_anchor=(0.5, -0.18), ncol=len(keys), frameon=False, fontsize=8.5,
+              labelcolor=INK2)
+    ax.set_title("Recommended allocation - Track J's energy & materials shown apart, because "
+                 "they overlap Track K's bet", loc="left", fontsize=10.5, color=INK)
+    fig.tight_layout()
+    fig.savefig(path, dpi=110, facecolor=SURFACE, bbox_inches="tight")
+    return fig
+
+
 def append_log(row: dict) -> None:
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
     new = pd.DataFrame([row])[LOG_COLUMNS]
@@ -112,7 +286,13 @@ def main() -> int:
     ap.add_argument("--action", default="", help="what you did with this recommendation")
     ap.add_argument("--note", default="", help="why — the news, the pundits, the gut")
     ap.add_argument("--no-log", action="store_true", help="do not append to the decision log")
+    ap.add_argument("--charts-dir", default="charts", help="where charts are saved (default charts/)")
+    ap.add_argument("--no-show", action="store_true", help="save charts without opening windows")
+    ap.add_argument("--no-plots", action="store_true", help="no charts at all")
     args = ap.parse_args()
+    if args.no_show and not args.no_plots:
+        import matplotlib
+        matplotlib.use("Agg")
     pd.set_option("display.width", 200)
     status = 0
 
@@ -190,6 +370,39 @@ def main() -> int:
                   ", ".join(f"{s} {v:+.1%}" for s, v in d.items()))
     else:
         print("\n  Today IS a rotation date: the two recommendations coincide.")
+
+    if not args.no_plots:
+        try:
+            import matplotlib.pyplot as plt
+            outdir = REPO_ROOT / args.charts_dir
+            outdir.mkdir(parents=True, exist_ok=True)
+            stamp = f"{latest:%Y-%m-%d}"
+            sectors = pd.read_csv(REPO_ROOT / "random_pool.csv").set_index("symbol")["sector"]
+            rows = [(f"At last rotation\n{lr['date']}", a_last)]
+            if not on_cycle:
+                rows.append((f"Current\n{stamp} (information)", a_now))
+            chart_trigger(store, last_rot, outdir / f"{stamp}_combined_trigger.png")
+            chart_allocation(rows, sectors, outdir / f"{stamp}_combined_allocation.png")
+            print(f"\n  Charts saved to {args.charts_dir}/: {stamp}_combined_trigger.png, "
+                  f"{stamp}_combined_allocation.png")
+            if not args.no_show:
+                jpngs = sorted(outdir.glob(f"{tj_session:%Y-%m-%d}_trackj_*.png"))
+                for png in jpngs:
+                    img = plt.imread(png)
+                    h, w = img.shape[:2]
+                    f = plt.figure(figsize=(w / 110, h / 110))
+                    f.canvas.manager.set_window_title(png.name) if f.canvas.manager else None
+                    ax = f.add_axes([0, 0, 1, 1])
+                    ax.imshow(img)
+                    ax.axis("off")
+                print(f"  Track J charts shown alongside: {len(jpngs)}"
+                      + ("" if jpngs else " (none saved for this session - run "
+                                           "run_live_trackj.py --save-charts charts)"))
+                plt.show()
+            plt.close("all")
+        except Exception as exc:
+            print(f"\n  (charts skipped: {type(exc).__name__}: {exc})")
+            status = max(status, 2)
 
     if not args.no_log:
         kl, kc = k["last_rotation"], k["current"]

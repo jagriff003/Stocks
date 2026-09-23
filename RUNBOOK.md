@@ -32,13 +32,33 @@ part 6.
 
 ## 2. The routine
 
+### Copy-paste setup
+
+Every block below is **PowerShell** (the VS Code terminal) and calls the venv's
+python directly, so nothing needs activating. Paste this once per terminal:
+
+```powershell
+cd C:\Users\USER\OneDrive\Analytics\Stocks
+$py = ".\.venv-1\Scripts\python.exe"
+```
+
 ### Rotation Tuesday — after 16:15 ET
 
+```powershell
+# 1. production, while it is the traded model (charts on screen)
+& $py scripts\run_live.py
+
+# 2. Track J: fresh prices, charts saved to charts\, writes its books for step 3
+& $py scripts\run_live_trackj.py --no-cache --save-charts charts
+
+# 3. both models: refreshes the data store, prints Track J + Track K + the allocation,
+#    saves the Track K and allocation charts, and opens them WITH Track J's three
+& $py scripts\run_live_combined.py
 ```
-python scripts/run_live.py                                   # 1. production, while it is the traded model
-python scripts/run_live_trackj.py --no-cache --no-plots      # 2. Track J: fresh prices, writes its books
-python scripts/run_live_combined.py                          # 3. updates the data store, prints Track J + Track K + allocation
-```
+
+Step 2 saves quietly and step 3 opens all five charts together. To see Track
+J's charts at step 2 instead, add `--show` (`--save-charts charts --show`).
+Close the chart windows to let each script finish.
 
 Then:
 
@@ -52,21 +72,29 @@ Then:
 7. **Trade at Wednesday's open.** Only the rotating Track J sleeve, plus any
    Track K change you chose to act on.
 8. **Record what you did** — no need to re-run anything:
-   ```
-   python scripts/record_decision.py --action "rotated sleeve 0; skipped Track K" --note "oil crowded"
+   ```powershell
+   & $py scripts\record_decision.py --action "rotated sleeve 0; skipped Track K" --note "oil crowded"
+   & $py scripts\record_decision.py --show
    ```
    The combined report already logged its recommendation when it ran; this
    fills in your action against that row. `--show` prints the recent log.
 9. **Commit the record** (the pool snapshot, config snapshot and decision log
    are source, not output — they only have value if they accumulate):
-   ```
-   git add snapshots data/decisions data/market && git commit -m "Rotation YYYY-MM-DD"
+   ```powershell
+   git add snapshots data/decisions data/market; git commit -m "Rotation 2026-09-29"
    ```
 
 ### Other days — optional
 
-Running `run_live_trackj.py` and `run_live_combined.py` off-cycle is safe and
-is logged. The report then shows **two** recommendations for each model:
+Running Track J and the combined report off-cycle is safe and is logged:
+
+```powershell
+& $py scripts\run_live_trackj.py --no-cache --save-charts charts
+& $py scripts\run_live_combined.py
+```
+
+To look without adding a row to the decision log, add `--no-log` to the second
+line. The report then shows **two** recommendations for each model:
 
 - **AT THE LAST ROTATION** — what you should be holding now.
 - **CURRENT** — what each model would say if today were a rotation.
@@ -77,16 +105,17 @@ Useful when the news is loud and you want to see whether Track K agrees.
 
 ### Monthly
 
-```
-python scripts/update_market_data.py --verify    # full-history audit of the daily store; writes nothing
-python scripts/update_market_data.py --long      # refresh the research data (French, World Bank, FRED, Nareit)
+```powershell
+& $py scripts\update_market_data.py --verify    # full-history audit of the daily store; writes nothing
+& $py scripts\update_market_data.py --long      # refresh the research data (French, World Bank, FRED, Nareit)
+git add data; git commit -m "Monthly data refresh"
 ```
 
 Both exit 2 when something needs a look (part 5). Commit `data/` afterwards.
 
 ### Quarterly
 
-`python scripts/screen_universe.py` — the production universe re-screen, as
+`& $py scripts\screen_universe.py` — the production universe re-screen, as
 before.
 
 ---
@@ -111,6 +140,16 @@ A mismatch prints a `***` warning and exits 2 — re-run `run_live_trackj.py`.
 
 **TRACK J.** The sleeve bought at the last rotation, the next rotation date and
 sleeve, and what that sleeve would buy on today's close.
+
+**CHARTS** (saved to `charts\` as `YYYY-MM-DD_combined_*.png`, opened with
+Track J's three):
+
+- `_combined_trigger` — top: each trigger asset's 3-month return over SPY
+  against the dashed +10% line; bottom: the stock-bond correlation against 0.
+  Shaded spans are when it fired; the dotted line is the last rotation. Read it
+  for *how close* the trigger is and *how long* it has been firing.
+- `_combined_allocation` — the recommended book(s) as 100% bars, with Track J's
+  energy & materials split out so the overlap with Track K is visible.
 
 **RECOMMENDED ALLOCATION.** One table per recommendation: symbol, the Track J
 and Track K shares, the combined weight and dollars at $100k. While Track K is
@@ -183,6 +222,8 @@ the log answers whether discretion helped — which nothing else in this repo ca
 | combined report: `live/trackj_book.json missing` | Track J never run on this machine since the export was added | run `run_live_trackj.py` |
 | combined report: `rotation calendars disagree` | anchor or calendar changed in one place only | stop and look — both must use the 2026-09-15 anchor |
 | `record_decision.py` refuses: `already records …` | that row already has an action | `--overwrite` only if the first entry was a mistake |
+| combined report: `Track J charts shown alongside: 0` | Track J ran without `--save-charts charts` | re-run step 2 with it, or ignore — the report is complete without them |
+| a script seems hung | a chart window is open and waiting | close the chart windows |
 
 ### Market data store statuses (`update_market_data.py`, and the report's header)
 
@@ -211,7 +252,7 @@ the log answers whether discretion helped — which nothing else in this repo ca
 | `data/longhistory/` | 1926– research panel (built) and raw vintages (`raw/`, never deleted) | panel yes, raw no |
 | `snapshots/pool/`, `snapshots/config/` | point-in-time pool and config per Track J run — the only thing that can ever settle survivorship | **yes — commit them** |
 | `live/trackj_book.json` | Track J's books for the combined report | no (regenerated) |
-| `charts/` | `--save-charts` output | no |
+| `charts/` | `--save-charts` and combined-report charts, dated | no |
 | `FINDINGS.md` / `TODO.md` | what was measured / what is open | yes |
 
 ### When to run on a rebalance day
@@ -285,8 +326,15 @@ matplotlib backend so nothing tries to open a window. The same flags work for
 `run_live_trackj.py`. (Until 2026-09-23 a stale chart block made every charted
 Track J run exit 2; fixed.)
 
-A daily scheduled `run_live_combined.py` is fine: it logs every run, so the
-decision log also becomes a daily record of Track K's reading.
+A daily scheduled combined report is fine — it logs every run, so the decision
+log also becomes a daily record of Track K's reading. Scheduled runs must not
+open windows:
+
+| goal | command |
+|---|---|
+| Track J, scheduled | `scripts\run_live_trackj.py --no-cache --save-charts charts` (never `--show`) |
+| combined, scheduled | `scripts\run_live_combined.py --no-show` (charts saved, no windows) |
+| combined, no charts | `scripts\run_live_combined.py --no-plots` |
 
 The context panel, the health monitor and the charts are each allowed to fail
 without stopping the run — the book is still worth having when the context
