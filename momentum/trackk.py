@@ -89,6 +89,23 @@ def trigger_state(market: pd.Series, assets: pd.DataFrame, date: pd.Timestamp,
                 trailing_return(market.to_frame("m"), cfg.lookback)["m"].loc[date])}
 
 
+def firing_streak(market: pd.Series, assets: pd.DataFrame, decisions: Sequence[pd.Timestamp],
+                  cfg: HedgeConfig = LIVE_CONFIG) -> int:
+    """
+    Consecutive decision dates, ending at the last one given, on which the raw
+    trigger fired.  The flicker study (2026-09-23) found that requiring two
+    halves the on/off changes; the live config does not require it, so the
+    report shows the count and the judgement stays with the reader.
+    """
+    fire = pd.Series(regime_open(market, assets, cfg), index=market.index)
+    n = 0
+    for d in sorted(decisions, reverse=True):
+        if not fire.get(d, False):
+            break
+        n += 1
+    return n
+
+
 def recommendations(store: pd.DataFrame, rotations: Sequence[pd.Timestamp],
                     cfg: HedgeConfig = LIVE_CONFIG) -> Dict[str, Dict]:
     """
@@ -107,8 +124,10 @@ def recommendations(store: pd.DataFrame, rotations: Sequence[pd.Timestamp],
                                 ("current", latest, sorted(set(rot) | {latest}))):
         w = hedge_weights(market, assets, cfg, decide_at=decide).loc[date]
         hedge = {LIVE_SYMBOL[r]: float(v) for r, v in w.drop("STOCKS").items() if v > 0}
+        trig = trigger_state(market, assets, date, cfg)
+        trig["streak"] = firing_streak(market, assets, [d for d in decide if d <= date], cfg)
         out[label] = {"date": date, "hedge_share": float(1.0 - w["STOCKS"]), "weights": hedge,
-                      "trigger": trigger_state(market, assets, date, cfg),
+                      "trigger": trig,
                       "diagnostics": reading_at(market, assets, date, cfg)}
     return out
 

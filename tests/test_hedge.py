@@ -266,3 +266,21 @@ def test_explicit_decision_dates_replace_the_positional_cadence():
     assert set(changes) <= set(dates)
     part = hedge_weights(stock.iloc[:112], assets.iloc[:112], HedgeConfig(), decide_at=dates)
     pd.testing.assert_series_equal(w.iloc[111], part.iloc[-1], check_names=False)
+
+
+def test_regime_persistence_counts_decisions_both_ways():
+    idx = pd.date_range("2000-01-31", periods=24, freq="ME")
+    stock = pd.Series(-0.01, index=idx)
+    # danger gate as a controllable raw trigger: stocks trail cash on these rows
+    raw = np.array([0, 1, 0, 1, 1, 1, 0, 1, 1, 0, 0, 0] * 2, dtype=bool)
+    stock = pd.Series(np.where(raw, -0.02, 0.02), index=idx)
+    assets = pd.DataFrame({"GOLD": 0.03, "CASH": 0.0}, index=idx)
+    base = HedgeConfig(lookback=1, corr_gate=None, danger_lookback=1)
+    on = lambda cfg: hedge_weights(stock, assets, cfg)["GOLD"].gt(0).values
+    np.testing.assert_array_equal(on(base), raw)
+    p2 = on(replace(base, regime_persist=2))
+    # opens on the SECOND consecutive firing, closes on the first quiet one
+    np.testing.assert_array_equal(p2[:12], [0, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0])
+    p2r2 = on(replace(base, regime_persist=2, regime_release=2))
+    # ...and with release=2, one quiet decision is not enough to close
+    np.testing.assert_array_equal(p2r2[:12], [0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0])

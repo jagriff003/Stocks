@@ -59,6 +59,11 @@ against that bond, over `corr_window`) to be above the threshold — the positiv
 correlation of 1946-48, the 1970s and 2022.  Both are AND-ed with any danger
 gate.  Unset, nothing changes.
 
+`regime_persist` / `regime_release` (2026-09-23, the flicker study) count
+DECISION dates, not sessions: the gate opens only after the trigger has held
+on that many consecutive decisions, and closes only after it has been quiet on
+that many.  Both 1 is the original behaviour.
+
 HARVEST: CATCH THE OUTSIZED RUN, THEN HAND THE SLOT BACK (James, 2026-09-23)
 
 The hypothesis: in currency and rate stress, direct real-asset exposure runs
@@ -148,6 +153,8 @@ class HedgeConfig:
     regime_min: int = 0                   # how many must beat stocks (and cash) to fire
     regime_corr_asset: Optional[str] = None     # bond for the stock-bond condition
     regime_corr_above: Optional[float] = None   # fire only while that correlation is above this
+    regime_persist: int = 1               # consecutive firing decisions needed to open
+    regime_release: int = 1               # consecutive quiet decisions needed to close
     harvest_gain: Optional[float] = None  # exit once gain since entry >= this
     harvest_z: Optional[float] = None     # exit (and never enter) at this z of trailing return
     harvest_z_min_history: int = 60       # periods of own history before z is trusted
@@ -249,6 +256,8 @@ def hedge_weights(stock: pd.Series, assets: pd.DataFrame,
     entry: Dict[str, float] = {}
     peak: Dict[str, float] = {}
     blocked_until: Dict[str, int] = {}
+    fire_streak = quiet_streak = 0
+    regime_on = False
     every = max(int(cfg.decide_every), 1)
     on_date = (np.asarray(stock.index.isin(pd.DatetimeIndex(decide_at)))
                if decide_at is not None else None)
@@ -260,8 +269,16 @@ def hedge_weights(stock: pd.Series, assets: pd.DataFrame,
             if i > 0:
                 W[i] = W[i - 1]
             continue
+        if open_slots[i]:
+            fire_streak, quiet_streak = fire_streak + 1, 0
+        else:
+            fire_streak, quiet_streak = 0, quiet_streak + 1
+        if fire_streak >= cfg.regime_persist:
+            regime_on = True
+        elif quiet_streak >= cfg.regime_release:
+            regime_on = False
         rs = tr_stock.iat[i]
-        if np.isnan(rs) or not open_slots[i]:
+        if np.isnan(rs) or not regime_on:
             held, entry, peak = set(), {}, {}
             continue
 

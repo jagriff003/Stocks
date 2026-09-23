@@ -540,8 +540,11 @@ allowed to report. Open design questions from the first live run:
 1. **Net the overlap?** Track J was 44% energy/materials on 2026-09-23; Track
    K's 50% on top made ~72%. Options: size Track K's slots net of Track J's
    exposure to the same asset class, or accept the stacking as the point.
-2. **Persistence.** The trigger fires in 1-21 session spells. Requiring it to
-   hold on two consecutive rotation Tuesdays would cut flicker; untested.
+2. **Persistence — MEASURED 2026-09-23** (FINDINGS, trigger timing). Requiring
+   two consecutive firing rotations halves the flicker at no cost; it fails the
+   pre-set rule only by the one-decision delay any persistence implies. Live
+   config unchanged; the report shows the streak. Decide after a few live
+   episodes, using the decision log.
 
 Also fixed on the way, in `run_live_trackj.py`: a stale chart block referencing
 an undefined `result` marked every charted run degraded (exit 2); and SET 2

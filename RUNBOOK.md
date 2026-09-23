@@ -1,123 +1,220 @@
-# Runbook — what to do when the monitor says something
+# Runbook — operating the models
 
-Written 2026-09-03, while nothing is wrong. That is the point: a decision made
-ten months into a shortfall is a worse decision than the same one made now, and
-the documented failure mode of this strategy is re-tuning under discomfort.
+For James, at the keyboard. Parts 1–4 are the routine and the decisions; part 5
+is what to do when something looks wrong; part 6 is reference. The evidence
+behind every statement here is in FINDINGS.md — this file says what to do, not
+why it was concluded.
 
-Every number below is reproducible from `python scripts/monitor_health.py`.
-
----
-
-## First, the base rates
-
-Do not treat these as problems. They are the normal operating range.
-
-| | |
-|---|---|
-| 6-month windows trailing SPY | **42%** |
-| 5th percentile 6-month shortfall | -10.9% |
-| 1st percentile | -17.5% |
-| Longest continuous stretch trailing SPY | **356 days** (2019-01 → 2020-01) |
-| Next longest | 268 days, 170 days |
-| Max drawdown on record | -19.23% |
-
-A -20% drawdown and a -18% relative shortfall are both normal, but they are
-different weather. A drawdown is capital leaving the account. A shortfall is the
-index compounding without you — in both historical alarm episodes the model was
-roughly flat (-1.8%, -2.6%) while SPY ran +17%. Do not read one as a proxy for
-the other.
-
-**Nearly a year of trailing the index is inside historical experience for a
-strategy compounding at 19.8%.** Discomfort is not evidence.
+Reorganised 2026-09-23 when Track K joined. The health-monitor ladder, run-timing
+measurements and scheduler notes that used to open this file are unchanged in
+part 6.
 
 ---
 
-## The states
+## 1. Where things stand
 
-Printed on every `run_live.py`, and in full by `monitor_health.py`.
+| model | what it is | status | run with |
+|---|---|---|---|
+| **Production** | 46 curated names, top 4, VIX overlay | **the model actually traded** until Track J graduates | `scripts/run_live.py` |
+| **Track J** | pullback score on ~745 liquid names, 4 sleeves of 8, one sleeve rotating every other Tuesday | baseline, graduating to production over the weeks after 2026-09-23 | `scripts/run_live_trackj.py` |
+| **Track K** | preparation model for an inflation / debasement regime: hands slots to real assets when its trigger fires | **discretionary input** — informs, does not override | `scripts/run_live_combined.py` |
 
-| State | Condition | Meaning |
+- **Calendar.** Track J (and Track K with it) rotates every other **Tuesday**,
+  anchored 2026-09-15 — so 09-29, 10-13, 10-27, … Build on Tuesday's close,
+  trade at **Wednesday's open**. Only one Track J sleeve (a quarter of the book)
+  trades per rotation. Production prints its own next rotation date; it is
+  anchored to the same Tuesdays.
+- **Account.** Tax-advantaged, so K-1s and the collectibles rate do not bind.
+  Compliance: nothing data-center related, enforced by `restricted.csv`.
+- **Nothing here trades for you.** Every script prints; you place the orders.
+
+---
+
+## 2. The routine
+
+### Rotation Tuesday — after 16:15 ET
+
+```
+python scripts/run_live.py                                   # 1. production, while it is the traded model
+python scripts/run_live_trackj.py --no-cache --no-plots      # 2. Track J: fresh prices, writes its books
+python scripts/run_live_combined.py                          # 3. updates the data store, prints Track J + Track K + allocation
+```
+
+Then:
+
+4. **Check the dates before anything else.** Each script prints a `Signal
+   session:` (or `last session`) line. It must be **today**. If not, re-run
+   with `--no-cache` — never trade a stale book (part 6, "If the panel is short").
+5. **Check the exit codes.** `0` clean; `2` printed but something was skipped
+   or is stale — read the block at the end before trusting it; anything else is
+   a failure. Part 5 has the fixes.
+6. **Read the combined report** (part 3) and **decide** (part 4).
+7. **Trade at Wednesday's open.** Only the rotating Track J sleeve, plus any
+   Track K change you chose to act on.
+8. **Record what you did** — no need to re-run anything:
+   ```
+   python scripts/record_decision.py --action "rotated sleeve 0; skipped Track K" --note "oil crowded"
+   ```
+   The combined report already logged its recommendation when it ran; this
+   fills in your action against that row. `--show` prints the recent log.
+9. **Commit the record** (the pool snapshot, config snapshot and decision log
+   are source, not output — they only have value if they accumulate):
+   ```
+   git add snapshots data/decisions data/market && git commit -m "Rotation YYYY-MM-DD"
+   ```
+
+### Other days — optional
+
+Running `run_live_trackj.py` and `run_live_combined.py` off-cycle is safe and
+is logged. The report then shows **two** recommendations for each model:
+
+- **AT THE LAST ROTATION** — what you should be holding now.
+- **CURRENT** — what each model would say if today were a rotation.
+  **Information, not a trade.** Trading it off-cycle is a different strategy
+  that was never tested, for either model.
+
+Useful when the news is loud and you want to see whether Track K agrees.
+
+### Monthly
+
+```
+python scripts/update_market_data.py --verify    # full-history audit of the daily store; writes nothing
+python scripts/update_market_data.py --long      # refresh the research data (French, World Bank, FRED, Nareit)
+```
+
+Both exit 2 when something needs a look (part 5). Commit `data/` afterwards.
+
+### Quarterly
+
+`python scripts/screen_universe.py` — the production universe re-screen, as
+before.
+
+---
+
+## 3. Reading the combined report
+
+Top to bottom:
+
+**Header.** Store updated to *date*; Track J books from *date*. They must match.
+A mismatch prints a `***` warning and exits 2 — re-run `run_live_trackj.py`.
+
+**TRACK K.** For the last rotation and (off-cycle) for today:
+
+- `Track K is quiet` — nothing to do. It is quiet most of the time: 3% of months
+  over 1927–2026 outside the inflation episodes.
+- `Track K is FIRING — N consecutive firing decision(s)` — the trigger holds:
+  **at least 2 of gold, silver, commodities, energy beat SPY by 10% over three
+  months and beat cash, and the 1-year stock-bond correlation is positive.**
+  The count matters (part 4).
+- The table lists every Track K asset: live ticker, 3-month return, excess over
+  SPY, whether it qualifies (`yes`), and `*` for the four trigger assets.
+
+**TRACK J.** The sleeve bought at the last rotation, the next rotation date and
+sleeve, and what that sleeve would buy on today's close.
+
+**RECOMMENDED ALLOCATION.** One table per recommendation: symbol, the Track J
+and Track K shares, the combined weight and dollars at $100k. While Track K is
+quiet this is simply Track J. When it fires, each qualifying real asset takes
+25% (up to 75%) and Track J's names shrink pro-rata. A symbol held by several
+Track J sleeves appears once with the summed weight (that stacking is
+deliberate). Off-cycle, the last line lists the difference between the two
+recommendations.
+
+---
+
+## 4. Deciding — especially when Track K fires
+
+Track J's book is the default. Track K is a second opinion about the
+**environment**, built for a regime that is not in Track J's record. Obeying it
+mechanically on Track J over 2012–2026 cost 0.3–0.7pp a year; its value, if
+any, is in a 1970s-like grind the record does not contain.
+
+When it fires, the questions the evidence says to ask:
+
+1. **First firing, or confirmed?** It flickers — spells of 1–21 sessions since
+   2021. Requiring two consecutive firing rotations halves the on/off changes
+   and cost nothing historically. The report says when a firing is the first.
+2. **Is Track J already there?** Its score drifts into producers on its own: on
+   2026-09-23 Track J was 44% energy and materials, and following Track K on top
+   would have made ~72%. Taking Track K's slots on top is doubling a bet, not
+   hedging one. Reasonable responses: take only the Track K asset Track J does
+   not already hold; or, as you put it, stay with Track J and trim the sleeves
+   least aligned with the regime.
+3. **Is it early or late?** In 1973 and 1977 it fired with 2–21% of the runs
+   done and the assets then more than doubled. In 2022 it fired with 66–81% of
+   the runs done; gold and silver had peaked in 2020. Since 2012, the basket it
+   held has usually trailed SPY over the next quarter. Crowding is visible in
+   the news before it is visible in a 63-session return — the model cannot see
+   "pundits doubling down"; you can.
+4. **Is this a slow regime or a fast crash?** Track K is built for grinds
+   (1973–74 took 21 months). It cannot see a 23-session crash like 2020 and was
+   designed not to react to one.
+
+Whatever you choose, record it with `record_decision.py`. After a few episodes
+the log answers whether discretion helped — which nothing else in this repo can.
+
+**What not to do** (each of these was tested and lost):
+
+- Trade either model's CURRENT recommendation off-cycle because it looks better
+  than what you hold.
+- Put Track K in charge of Track J continuously: −5.5pp a year, because it
+  hedges just before Track J's recoveries (Track J mean-reverts at this horizon).
+- Take profits on Track K assets at a target: the runs that mattered were long
+  and fat-tailed, and fixed targets sold the tail.
+
+---
+
+## 5. When something looks wrong
+
+### Exit codes (every script)
+
+| code | meaning | do |
 |---|---|---|
-| **OK** | neither breach | nothing |
-| **WATCH** | breach today, not yet sustained; or the warn pair sustained | note it, no action |
-| **ALARM** | raw z ≤ -1.25 **and** excess ≤ -12.5%, for 20 consecutive sessions | work the ladder below |
+| 0 | complete | nothing |
+| 2 | printed, but something was skipped, stale or flagged; the output ends with the reason | read the reason before trusting the book |
+| other | failed outright — including a restricted name reaching a panel, which is deliberate | fix the cause; never suppress the restricted-name failure |
 
-ALARM fired twice in eleven years (2019-07, 2021-08). It is rare by
-construction, and its rarity is the only property of it that calibrated — see
-`momentum/health.py` on why it must not be read as predictive.
+### Common cases
 
----
-
-## The ladder
-
-Work it in order. Each step is cheaper and more likely to be the answer than the
-one after it. **Do not skip to step 4.**
-
-### 1. Reconcile before diagnosing
-
-The monitor scores the *simulated* return stream — next-open fills, 7.5 bps —
-not your account. Before concluding anything about the model, confirm the two
-still describe the same thing:
-
-- Did you trade the aligned rotation set, on the rotation date?
-- Were fills near the open, or did you trade midday / a day late?
-- Does your actual 6-month return resemble the `126d model` figure printed?
-
-If your P&L and the model's diverge, **the model is not what degraded** and
-nothing below applies. This is the most likely cause and the easiest to miss.
-
-### 2. Decompose: overlay drag, or bad picks?
-
-The report prints both. They point in different directions:
-
-| Raw | Beta-adjusted | Reading |
+| symptom | cause | fix |
 |---|---|---|
-| bad | fine | A half-beta book failed to keep up with a rally. Structural, not broken. Check the defensive posture block. |
-| bad | bad | The picks themselves stopped working. Continue to step 3. |
+| `Signal session` is not today | stale price cache, or a provider failure | re-run with `--no-cache` |
+| combined report: `Track J's books are from … but the store ends …` | Track J not re-run today | run `run_live_trackj.py --no-cache --no-plots`, then the report |
+| combined report: `live/trackj_book.json missing` | Track J never run on this machine since the export was added | run `run_live_trackj.py` |
+| combined report: `rotation calendars disagree` | anchor or calendar changed in one place only | stop and look — both must use the 2026-09-15 anchor |
+| `record_decision.py` refuses: `already records …` | that row already has an action | `--overwrite` only if the first entry was a mistake |
 
-Both historical episodes were the first kind: the model held a defensive name on
-~35% of days while SPY ran +17%. Check `DEFENSIVE POSTURE` — if the recent share
-is well above the 39% long-run figure, the overlay is the story.
+### Market data store statuses (`update_market_data.py`, and the report's header)
 
-### 3. Screen the universe
+| status | meaning | do |
+|---|---|---|
+| `ok` | appended, overlap agreed | nothing |
+| `FILLED` | Yahoo had no bar for a session SPY has; carried flat, move kept the next day | nothing; if Yahoo posts the bar later it appears as a revision |
+| `REVISION REFUSED` | a stored return changed at source (late dividend, filled hole) | read the detail, then `--accept-revisions` |
+| `STALE` | symbol ends before SPY | usually Yahoo lag; re-run later |
+| `GAP` | sessions missing inside the history | investigate before trusting the series |
+| `BIG MOVE` | a daily return beyond 20% | confirm against a second instrument (SLV 2026-01-30 −28.5% is real) |
 
-`python scripts/screen_universe.py`
-
-FINDINGS' standing conclusion is that every timing idea tested failed, and what
-remaining upside exists is in the candidate set rather than in the timing of
-trades among current candidates. A sustained shortfall with a fixed ranking
-method is most consistent with a stale universe.
-
-You already re-screen roughly quarterly. An ALARM is a reason to do it now and
-to look harder, not to invent a new process.
-
-### 4. Parameters — reluctantly, and with a prior against
-
-Walk-forward validation found that re-tuning on a trailing window **beat the
-median fixed configuration only 13% of the time and cost 3pp of CAGR**. The
-instinct to tune when it hurts is the documented way to lose money here.
-
-If you get this far, the bar is: name the specific parameter, state in advance
-what result would change your mind, and run it as a suite with the subperiod
-stability check — the same standard Tracks A-D were held to. A change that wins
-the full sample by winning one segment is a fit, not a finding.
+`--add SYM` starts tracking a new symbol with its full history.
 
 ---
 
-## What ALARM never means
+## 6. Reference
 
-- **Do not de-risk into it.** Track A found that cutting exposure forfeits the
-  overnight premium — 63% of the return stream for 36% of the variance.
-- **Do not trade the CURRENT SET off-cycle** because it looks better than what
-  you hold. The rank-exit and score-swap suites both tested versions of that and
-  both were rejected.
-- **Do not treat it as predictive.** Forward six-month excess after a trigger
-  swings from -2.6% to +4.8% depending on settings, on two to five observations.
-  It is a prompt to look, and nothing more.
+### Where things live
 
----
+| path | what | in git |
+|---|---|---|
+| `data/market/daily_returns.csv` | daily total returns for every Track K instrument; what the report reads | yes — revisions show as diffs |
+| `data/market/update_log.csv` | every store update and its checks | yes |
+| `data/decisions/decision_log.csv` | each report's recommendation, and what you did | **yes — this is the record** |
+| `data/longhistory/` | 1926– research panel (built) and raw vintages (`raw/`, never deleted) | panel yes, raw no |
+| `snapshots/pool/`, `snapshots/config/` | point-in-time pool and config per Track J run — the only thing that can ever settle survivorship | **yes — commit them** |
+| `live/trackj_book.json` | Track J's books for the combined report | no (regenerated) |
+| `charts/` | `--save-charts` output | no |
+| `FINDINGS.md` / `TODO.md` | what was measured / what is open | yes |
 
-## When to run on a rebalance day
+### When to run on a rebalance day
 
 Measured 2026-09-15 by sampling Yahoo's daily bar every five minutes across the
 close (`analyze_run_date_sensitivity.py` covers the cost side; the settle timing
@@ -135,7 +232,7 @@ until 16:00 ET, froze at 16:05, and the last consolidation adjustments — under
 So there is no need to wait for the following morning. Run any time after the
 close on the rebalance date and the panel carries that date's close.
 
-### The gap that actually matters
+#### The gap that actually matters
 
 Not script-run-to-trade. It is **the close the model ranked on, to the open you
 fill at** — and the target is to *hit* the modelled one overnight
@@ -157,7 +254,7 @@ mean: a one-session-stale panel picks a different name **56% of the time**, with
 outcomes from -264 to +214 bps. It is not a slightly worse book, it is a coin
 flip on roughly one position in four.
 
-### If the panel is short
+#### If the panel is short
 
 On 2026-09-03 a run at 22:04 ET — six hours after that bar had settled —
 produced a panel ending 2026-09-02, and nothing in the output said so. That was
@@ -170,15 +267,11 @@ you mean to trade on, do not trade the book** — re-run with `--no-cache`. The
 cost of one stale session is small in expectation and wide in outcome, which is
 exactly the combination not worth accepting when re-running is free.
 
----
-
-## Running it unattended
+### Running unattended
 
 `run_live.py` can run on a schedule, but not in its default form: it ends at
 `plt.show()`, which blocks forever when there is no window to close. A
 scheduled task that looks hung is almost always this.
-
-Three ways to run it, depending on whether you want the pictures:
 
 | goal | command |
 |---|---|
@@ -188,73 +281,20 @@ Three ways to run it, depending on whether you want the pictures:
 
 `--save-charts DIR` writes `YYYY-MM-DD_performance.png`, `_held-book.png` and
 `_context.png` into `DIR`, creating it if needed, and forces a non-GUI
-matplotlib backend so nothing tries to open a window.
+matplotlib backend so nothing tries to open a window. The same flags work for
+`run_live_trackj.py`. (Until 2026-09-23 a stale chart block made every charted
+Track J run exit 2; fixed.)
 
-### Read the exit code, not the log
+A daily scheduled `run_live_combined.py` is fine: it logs every run, so the
+decision log also becomes a daily record of Track K's reading.
 
 The context panel, the health monitor and the charts are each allowed to fail
 without stopping the run — the book is still worth having when the context
-panel cannot fetch a series. Interactively you see the skip line. On a
-schedule, nobody reads the log, so the run reports itself through the exit
-status instead:
-
-| code | meaning |
-|---|---|
-| 0 | complete — everything ran |
-| 2 | **the book printed, but something was skipped**; the run ends with an `INCOMPLETE RUN` block naming each component and why |
-| other | the run failed outright, including a restricted name reaching the universe (that one is deliberate and must never be suppressed) |
-
-A task that ignores the exit code will happily report success on a run that
+panel cannot fetch a series. On a schedule nobody reads the log, so **read the
+exit code**; a task that ignores it will happily report success on a run that
 skipped the health monitor for a month.
 
-### The combined report (Track J + Track K)
-
-After the close (16:15 ET onward), in this order:
-
-```
-python scripts/run_live_trackj.py --no-cache --no-plots     # Track J's books -> live/trackj_book.json
-python scripts/run_live_combined.py                          # refreshes the store, prints both models
-python scripts/run_live_combined.py --action "held; took XLE only" --note "pundits all-in on gold"
-```
-
-The report always shows two recommendations for each model: **at the last
-rotation** (what to hold now) and **current** (what they say on today's close,
-as if it were a rotation — information, not a trade, off-cycle). It refuses to
-look current when Track J's books are from an older session than the store, and
-exits 2.
-
-Every run appends a row to `data/decisions/decision_log.csv`. Fill in `action`
-and `note` (flags above, or by hand afterwards). It is tracked in git on
-purpose: the record of what discretion did is the only way to learn whether it
-helps. `--no-log` for test runs.
-
-### Market data store (Track K)
-
-The hedge layer decides from `data/market/daily_returns.csv`, kept current by
-
-```
-python scripts/update_market_data.py            # every session, after 16:15 ET
-python scripts/update_market_data.py --long     # monthly: research vintages + panel
-python scripts/update_market_data.py --verify   # monthly: full-history audit, writes nothing
-```
-
-Same exit convention as above. Status words in the report:
-
-| status | meaning | what to do |
-|---|---|---|
-| `ok` | appended, overlap agreed | nothing |
-| `FILLED` | Yahoo had no bar for a session SPY has; carried flat, move kept on the next day | nothing; if Yahoo posts the bar later it appears as a revision |
-| `REVISION REFUSED` | a stored return changed at source (late dividend, filled hole) | look at the detail, then `--accept-revisions` |
-| `STALE` | symbol ends before SPY | usually Yahoo lag; re-run later |
-| `GAP` | missing sessions inside the history | investigate before trusting the series |
-| `BIG MOVE` | a daily return beyond 20% | confirm against a second instrument (SLV 2026-01-30 -28.5% is real) |
-
-`--add SYM` starts tracking a symbol with its full history. Raw long-history
-downloads live in `data/longhistory/raw/` as dated vintages (out of git,
-never deleted); the built panel and the daily store are tracked so a revised
-history shows up as a diff.
-
-### Windows Scheduler
+#### Windows Scheduler
 
 Point the action at the venv's python directly rather than at a shell, so no
 console is needed:
@@ -267,5 +307,106 @@ Start in:  C:\Users\USER\OneDrive\Analytics\Stocks
 
 Schedule it **after the close** — the panel must contain the session you intend
 to trade. Check `Signal session:` in the output against the date you expect
-before acting on any scheduled run's book; everything in the section above
-about stale panels applies exactly as much when a machine ran it.
+before acting on any scheduled run's book; everything above about stale panels
+applies exactly as much when a machine ran it.
+
+### The health monitor — what to do when it says something
+
+Written 2026-09-03, while nothing was wrong. That is the point: a decision made
+ten months into a shortfall is a worse decision than the same one made now, and
+the documented failure mode of this strategy is re-tuning under discomfort.
+
+**Scope:** calibrated on the 46-name production model. `run_live_trackj.py`
+displays it for Track J, but it is not validated there (TODO 3). Every number
+below is reproducible from `python scripts/monitor_health.py`.
+
+#### First, the base rates
+
+Do not treat these as problems. They are the normal operating range.
+
+| | |
+|---|---|
+| 6-month windows trailing SPY | **42%** |
+| 5th percentile 6-month shortfall | -10.9% |
+| 1st percentile | -17.5% |
+| Longest continuous stretch trailing SPY | **356 days** (2019-01 → 2020-01) |
+| Next longest | 268 days, 170 days |
+| Max drawdown on record | -19.23% |
+
+A -20% drawdown and a -18% relative shortfall are both normal, but they are
+different weather. A drawdown is capital leaving the account. A shortfall is the
+index compounding without you — in both historical alarm episodes the model was
+roughly flat (-1.8%, -2.6%) while SPY ran +17%. Do not read one as a proxy for
+the other.
+
+**Nearly a year of trailing the index is inside historical experience for a
+strategy compounding at 19.8%.** Discomfort is not evidence.
+
+#### The states
+
+Printed on every `run_live.py`, and in full by `monitor_health.py`.
+
+| State | Condition | Meaning |
+|---|---|---|
+| **OK** | neither breach | nothing |
+| **WATCH** | breach today, not yet sustained; or the warn pair sustained | note it, no action |
+| **ALARM** | raw z ≤ -1.25 **and** excess ≤ -12.5%, for 20 consecutive sessions | work the ladder below |
+
+ALARM fired twice in eleven years (2019-07, 2021-08). It is rare by
+construction, and its rarity is the only property of it that calibrated — see
+`momentum/health.py` on why it must not be read as predictive.
+
+#### The ladder
+
+Work it in order. Each step is cheaper and more likely to be the answer than the
+one after it. **Do not skip to step 4.**
+
+**1. Reconcile before diagnosing.** The monitor scores the *simulated* return
+stream — next-open fills, 7.5 bps — not your account. Before concluding
+anything about the model, confirm the two still describe the same thing:
+
+- Did you trade the aligned rotation set, on the rotation date?
+- Were fills near the open, or did you trade midday / a day late?
+- Does your actual 6-month return resemble the `126d model` figure printed?
+
+If your P&L and the model's diverge, **the model is not what degraded** and
+nothing below applies. This is the most likely cause and the easiest to miss.
+
+**2. Decompose: overlay drag, or bad picks?** The report prints both. They
+point in different directions:
+
+| Raw | Beta-adjusted | Reading |
+|---|---|---|
+| bad | fine | A half-beta book failed to keep up with a rally. Structural, not broken. Check the defensive posture block. |
+| bad | bad | The picks themselves stopped working. Continue to step 3. |
+
+Both historical episodes were the first kind: the model held a defensive name on
+~35% of days while SPY ran +17%. Check `DEFENSIVE POSTURE` — if the recent share
+is well above the 39% long-run figure, the overlay is the story.
+
+**3. Screen the universe.** `python scripts/screen_universe.py`. FINDINGS'
+standing conclusion is that every timing idea tested failed, and what remaining
+upside exists is in the candidate set rather than in the timing of trades among
+current candidates. A sustained shortfall with a fixed ranking method is most
+consistent with a stale universe. You already re-screen roughly quarterly. An
+ALARM is a reason to do it now and to look harder, not to invent a new process.
+
+**4. Parameters — reluctantly, and with a prior against.** Walk-forward
+validation found that re-tuning on a trailing window **beat the median fixed
+configuration only 13% of the time and cost 3pp of CAGR**. The instinct to tune
+when it hurts is the documented way to lose money here. If you get this far,
+the bar is: name the specific parameter, state in advance what result would
+change your mind, and run it as a suite with the subperiod stability check —
+the same standard Tracks A-D were held to. A change that wins the full sample
+by winning one segment is a fit, not a finding.
+
+#### What ALARM never means
+
+- **Do not de-risk into it.** Track A found that cutting exposure forfeits the
+  overnight premium — 63% of the return stream for 36% of the variance.
+- **Do not trade the CURRENT SET off-cycle** because it looks better than what
+  you hold. The rank-exit and score-swap suites both tested versions of that and
+  both were rejected.
+- **Do not treat it as predictive.** Forward six-month excess after a trigger
+  swings from -2.6% to +4.8% depending on settings, on two to five observations.
+  It is a prompt to look, and nothing more.

@@ -57,3 +57,28 @@ def test_recommendations_match_the_validated_function_on_rotation_dates():
     assert np.isclose(rec["last_rotation"]["hedge_share"], 1 - w.at[last, "STOCKS"])
     assert rec["current"]["date"] == market.index[-1]
     assert 0.0 <= rec["current"]["hedge_share"] <= LIVE_CONFIG.max_hedge + 1e-12
+
+
+def test_record_decision_fills_the_latest_row_and_protects_it(tmp_path):
+    import pytest
+    from scripts.record_decision import record
+    log = tmp_path / "log.csv"
+    pd.DataFrame({"signal_session": ["2026-09-22", "2026-09-23"], "action": ["", ""],
+                  "note": ["", ""]}).to_csv(log, index=False)
+    row = record("held Track J", "commodities crowded", log_file=log)
+    assert row["signal_session"] == "2026-09-23" and row["action"] == "held Track J"
+    with pytest.raises(ValueError, match="overwrite"):
+        record("changed my mind", "", log_file=log)
+    record("took XLE", "", session="2026-09-22", log_file=log)
+    back = pd.read_csv(log, dtype=str, keep_default_na=False)
+    assert list(back["action"]) == ["took XLE", "held Track J"]
+
+
+def test_firing_streak_counts_back_from_the_last_decision():
+    from momentum.trackk import firing_streak
+    store = fake_store()
+    market = store["SPY"]
+    assets = assets_from_store(store)
+    dates = list(market.index[300::10])
+    n = firing_streak(market, assets, dates)
+    assert 0 <= n <= len(dates)

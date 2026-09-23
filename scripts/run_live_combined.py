@@ -28,8 +28,9 @@ rotation Tuesdays.
 THE DECISION LOG
 
 Every run appends a row to `data/decisions/decision_log.csv` (tracked in git):
-what each model recommended, and — via --action / --note, or filled in later
-by hand — what was actually done and why.  Discretion is the point of option
+what each model recommended, and — via --action / --note here, or afterwards
+with `scripts/record_decision.py` without re-running the models — what was
+actually done and why.  Discretion is the point of option
 (a); the log is what lets it be measured instead of remembered.
 
 Exit status follows RUNBOOK: 0 clean; 2 printed but something is stale or
@@ -59,8 +60,8 @@ from momentum.trackk import LIVE_CONFIG, combine, recommendations  # noqa: E402
 
 BOOK_FILE = REPO_ROOT / "live" / "trackj_book.json"
 LOG_FILE = REPO_ROOT / "data" / "decisions" / "decision_log.csv"
-LOG_COLUMNS = ["run_at", "signal_session", "last_rotation", "trackk_firing_at_rotation",
-               "hedge_share_at_rotation", "hedge_at_rotation", "trackk_firing_now",
+LOG_COLUMNS = ["run_at", "signal_session", "on_cycle", "last_rotation", "trackk_firing_at_rotation",
+               "trackk_streak_at_rotation", "hedge_share_at_rotation", "hedge_at_rotation", "trackk_firing_now",
                "hedge_share_now", "hedge_now", "trackj_bought_at_rotation",
                "trackj_next_rotation", "trackj_would_buy_now", "action", "note"]
 
@@ -68,7 +69,12 @@ LOG_COLUMNS = ["run_at", "signal_session", "last_rotation", "trackk_firing_at_ro
 def show_trigger(label, rec):
     t = rec["trigger"]
     state = "FIRING" if t["firing"] else "quiet"
-    print(f"  {label}: {t['date']:%Y-%m-%d}  Track K is {state}")
+    streak = ""
+    if t["firing"]:
+        streak = (f"  — {t['streak']} consecutive firing decision(s)"
+                  + ("; FIRST firing: requiring two (the flicker study) would wait for the next rotation"
+                     if t["streak"] == 1 else ""))
+    print(f"  {label}: {t['date']:%Y-%m-%d}  Track K is {state}{streak}")
     print(f"    trigger assets beating SPY by 10% and cash: {t['assets_qualifying']} of 4 "
           f"(needs {t['needed']});  stock-bond correlation (1y) {t['stock_bond_corr']:+.2f} "
           f"(needs > 0);  SPY 3m {t['market_3m']:+.1%}")
@@ -189,8 +195,9 @@ def main() -> int:
         kl, kc = k["last_rotation"], k["current"]
         append_log({
             "run_at": datetime.now().isoformat(timespec="seconds"),
-            "signal_session": f"{latest:%Y-%m-%d}", "last_rotation": lr["date"],
+            "signal_session": f"{latest:%Y-%m-%d}", "on_cycle": on_cycle, "last_rotation": lr["date"],
             "trackk_firing_at_rotation": kl["trigger"]["firing"],
+            "trackk_streak_at_rotation": kl["trigger"]["streak"],
             "hedge_share_at_rotation": round(kl["hedge_share"], 4),
             "hedge_at_rotation": " ".join(f"{s}:{w:.2f}" for s, w in kl["weights"].items()),
             "trackk_firing_now": kc["trigger"]["firing"],
@@ -201,7 +208,9 @@ def main() -> int:
             "trackj_would_buy_now": " ".join(cur["would_buy"]),
             "action": args.action, "note": args.note})
         print(f"\n  Decision log: row appended to {LOG_FILE.relative_to(REPO_ROOT)}"
-              + ("" if args.action else " (action/note blank — fill in what you did)"))
+              + ("" if args.action else
+                 " (action blank — record it later with\n    python scripts/record_decision.py "
+                 "--action \"...\" --note \"...\")"))
 
     print("\n  Track K is discretionary input. Obeyed mechanically on Track J 2012-2026 it")
     print("  cost 0.3-0.7pp a year and fired 3-4% of the time; its value is a regime that")

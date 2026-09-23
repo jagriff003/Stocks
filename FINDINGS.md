@@ -51,6 +51,7 @@ metrics and is subperiod-consistent.
 | Track K Tier 1 — hedge layer on Track J, 2012-2026 | **fails the bar** | -5.5pp CAGR (phase mean), Sharpe down, no drawdown bought; Track J rotated into energy itself (+39% in 2021-22) and mean-reverts at 63 sessions, so the layer sells its recoveries |
 | Track K option (b) — real-asset ETFs in the Track J pool | **inert** | -0.4pp, 0.5% average weight; the pullback score ranks them in the bottom half, correlation cap irrelevant |
 | Track K option (a) — regime trigger + combined report | **adopted as discretionary input** | fires 3% of months outside inflation episodes, in 1973-74/1977-81/2021-22 (late), misses 1946-48; obeyed on Track J -0.3 to -0.7pp; firing 2026-09 |
+| Track K trigger timing — lateness and flicker | **characterised, config unchanged** | early in 1973/1977, late in 2021-22; persist-2 halves flicker at no cost, shown as a streak in the report |
 
 Live model: **19.84% CAGR, 0.91 Sharpe, -19.23% max drawdown, Calmar 1.03**,
 net of realistic fills and costs. The honest like-for-like starting point was
@@ -2304,6 +2305,54 @@ both measured:
 It is a slow-regime instrument by construction: a 63-session comparison cannot
 see a 23-session crash (2020) and was built not to. What it prepares for is the
 grind — 1973-74 took 21 months, 1977-81 fifty-seven.
+
+---
+
+## Track K trigger timing — early in the 1970s, late since 2012, and persistence halves the flicker
+
+**Measured 2026-09-23.** `scripts/analyze_trigger_timing.py`. Variants and the
+rule for changing the live config were fixed before the run.
+
+**Late?** Share of each trigger asset's in-episode run already done when the
+trigger first fired, and what followed:
+
+| episode | first fire | done at first fire | fire -> episode end | market |
+|---|---|---|---|---|
+| 1973-74 | 1973-01 | gold 21%, silver 18%, commodities 15% | +115% / +118% / +138% | -45% |
+| 1977-81 | 1977-02 | 2-14% | +88% to +196% | +63% |
+| 2021-22 | 2022-02 | 66-81%; gold and silver had peaked in mid-2020 | gold -15%, silver -22%, energy +34% | -11% |
+
+Early at the start of the 1970s regimes, late in the only modern one. On Track
+J's rotation Tuesdays 2012-2026 the basket it held trailed SPY over the next 63
+sessions on most firing rotations (mean -4% to -7%, n = 13-15). Across a
+century of months the median three months after firing is about -3% and the
+mean slightly positive: small losses usually, occasionally a very large gain —
+an insurance payoff, and James's "by the time everyone piles in" for the
+modern record.
+
+**Flicker, and the variants:**
+
+| variant | flips/yr on Track J's calendar | cost on Track J (phase A / B) | century: % months on outside episodes, fwd mean |
+|---|---|---|---|
+| base (live) | 1.29 / 1.08 | -0.3 / -0.7pp | 3.3%, +0.8% |
+| persist 2 | **0.54 / 0.54** | -0.2 / **+0.5pp** | 1.2%, +3.6% |
+| persist 2/2 | 0.54 / 0.54 | -0.4 / +0.5pp | 2.1%, +2.5% |
+| earlier, L42 | 0.74 / 0.95 | -0.3 / -1.2pp | 2.2%, +1.8% |
+| earlier, +5% | 1.56 / 1.55 | -1.9 / -2.1pp | 7.2%, +1.7% |
+| slower, L126 +15% | 0.81 / 0.27 | -1.9 / -1.0pp | 2.2%, +5.4% |
+
+**By the pre-set rule nothing changes**: persistence fires one decision later in
+1973-74 and 1977-81, which the rule forbade — but that delay is built into any
+persistence requirement, so the rule was badly specified for it. On every
+other axis persist 2 is better: flicker halved, cost no worse at either phase,
+century forward return up. Its evidence is thin (4-7 firing rotations since
+2012), and it would have stayed out of 2021-22 on Track J's calendar — which
+was right there, since obeying the trigger then cost Track J up to 8pp.
+
+**What was done:** the live config is unchanged; the combined report now
+prints how many consecutive rotations the trigger has fired and says when a
+firing is the first. Whether to wait for confirmation is James's call, and the
+decision log records it.
 
 ---
 
