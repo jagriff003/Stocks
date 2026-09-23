@@ -536,9 +536,13 @@ def main() -> int:
     if cfg.correlation is not None and cfg.correlation.enabled:
         try:
             rc = RollingCorrelation(prices.close, cfg.correlation.window)
+            # Exactly what the rotation passes: with the VIX overlay off the
+            # builder exempts nothing but `exempt_symbols`.  This used to pass
+            # the defensive sleeve, so on a day IAU/SHY/TLT ranked high SET 2
+            # could show a book the rotation would not buy (fixed 2026-09-23).
             trace = select_diversified(ranked_now, rc.at(session),
                                        cfg.correlation, cfg.top_n,
-                                       exempt=sorted(defensive))
+                                       exempt=list(cfg.correlation.exempt_symbols))
             fresh = list(trace.selected)
             rejected = list(trace.rejected)
         except Exception as exc:
@@ -562,6 +566,49 @@ def main() -> int:
     overlap = set(held) & set(fresh)
     print(f"\n  Overlap with the aligned book: {len(overlap)} of {len(held)}"
           f"{' — ' + ', '.join(sorted(overlap)) if overlap else ''}")
+
+    # --- machine-readable books, for scripts/run_live_combined.py ---
+    #
+    # Both recommendations James asked for (2026-09-23): the book as of the
+    # LAST rotation (what should be held now) and the book as it would be if
+    # the next sleeve rotated on today's close (what the model says now).
+    try:
+        import json
+        past_rot = [d for d in rot if d <= session]
+        last_rot = past_rot[-1] if past_rot else None
+        rotated = next((j for j in sleeves if sleeves[j] == last_rot), None)
+        now_counts = Counter(counts)
+        if nxt_sleeve is not None and nxt_sleeve in sleeve_books:
+            now_counts.subtract(sleeve_books[nxt_sleeve])
+            now_counts.update(fresh)
+        book = {
+            "written": datetime.now().isoformat(timespec="seconds"),
+            "as_of": today.isoformat(),
+            "signal_session": f"{session:%Y-%m-%d}",
+            "anchor": args.anchor, "every_weeks": args.every_weeks,
+            "tranches": args.tranches, "top_n": cfg.top_n, "slots": total_slots,
+            "last_rotation": {
+                "date": f"{last_rot:%Y-%m-%d}" if last_rot is not None else None,
+                "sleeve": rotated,
+                "bought": sleeve_books.get(rotated, []),
+                "sleeves": {str(j): {"selected": f"{sleeves[j]:%Y-%m-%d}",
+                                     "names": sleeve_books[j]} for j in sleeve_books},
+                "weights": {n: counts[n] / total_slots for n in held},
+            },
+            "current": {
+                "next_rotation": f"{nxt_date:%Y-%m-%d}" if nxt_date is not None else None,
+                "next_sleeve": nxt_sleeve, "projected": bool(projected),
+                "would_buy": list(fresh),
+                "weights": {n: c / total_slots for n, c in now_counts.items() if c > 0},
+            },
+        }
+        live = REPO_ROOT / "live"
+        live.mkdir(exist_ok=True)
+        (live / "trackj_book.json").write_text(json.dumps(book, indent=2))
+        print(f"\n  Books written for the combined report: live/trackj_book.json")
+    except Exception as exc:
+        print("  *** book export failed: %s: %s ***" % (type(exc).__name__, exc))
+        degraded.note("book export", exc)
 
     # --- the point-in-time record ---
     if args.no_snapshot:
@@ -587,79 +634,6 @@ def main() -> int:
         print(f"  Point-in-time record now spans {len(cov)} snapshot(s)"
               f"{' — too short to answer anything yet' if len(cov) < 8 else ''}")
         snapshot_config(cfg, as_of=today, label="trackj")
-
-    # --- charts ---
-    if not args.no_plots:
-        try:
-            import matplotlib.pyplot as plt
-
-            wealth = (1 + result.returns).cumprod()
-            fig, axes = plt.subplots(2, 1, figsize=(12, 8))
-            axes[0].plot(wealth.index, wealth.values, linewidth=1.6)
-            axes[0].set_title("Track J pullback - cumulative return "
-                              "(%s, per-name liquidity costs)"
-                              % cfg.execution.execute_at)
-            axes[0].set_ylabel("Growth of $1")
-            axes[0].set_yscale("log")
-            axes[0].grid(alpha=0.3)
-            axes[1].plot(result.returns.index, result.returns.values * 100,
-                         linewidth=0.6, alpha=0.8)
-            axes[1].set_title("Daily returns (%)")
-            axes[1].set_xlabel("Date")
-            axes[1].grid(alpha=0.3)
-            plt.tight_layout()
-
-            held_fig = None
-            if held:
-                lookback = min(args.chart_days, len(prices.close))
-                sub = prices.close[[h for h in held if h in prices.close.columns]]
-                sub = sub.iloc[-lookback:].dropna(axis=1, how="all")
-                if not sub.empty:
-                    held_fig, ax = plt.subplots(figsize=(13, 6))
-                    for sym in sub.columns:
-                        s = sub[sym].dropna()
-                        if s.empty:
-                            continue
-                        ax.plot(s.index, s / s.iloc[0] * 100.0, linewidth=1.5,
-                                label="%s  %+.1f%%"
-                                      % (sym, 100 * (s.iloc[-1] / s.iloc[0] - 1)))
-                    spy_w = prices.spy.reindex(sub.index).ffill().dropna()
-                    if not spy_w.empty:
-                        ax.plot(spy_w.index, spy_w / spy_w.iloc[0] * 100.0,
-                                linewidth=2.0, linestyle="--", color="black",
-                                alpha=0.55,
-                                label="SPY  %+.1f%%"
-                                      % (100 * (spy_w.iloc[-1] / spy_w.iloc[0] - 1)))
-                    ax.axhline(100, color="grey", linewidth=0.8, alpha=0.5)
-                    ax.set_title("Held book over the last %d sessions "
-                                 "- rebased to 100, SPY dashed" % lookback)
-                    ax.set_ylabel("Rebased (100 = start)")
-                    ax.grid(alpha=0.3)
-                    ax.legend(loc="best", fontsize=9)
-                    held_fig.tight_layout()
-
-            ctx_fig = (plot_context(ctx.close, CONTEXT_SERIES)
-                       if ctx is not None else None)
-
-            if args.save_charts:
-                outdir = Path(args.save_charts)
-                outdir.mkdir(parents=True, exist_ok=True)
-                stamp = today.isoformat()
-                print("\nCharts written to %s:" % outdir)
-                for name, figure in (("performance", fig),
-                                     ("held-book", held_fig),
-                                     ("context", ctx_fig)):
-                    if figure is None:
-                        continue
-                    path = outdir / ("%s_trackj_%s.png" % (stamp, name))
-                    figure.savefig(path, dpi=110, bbox_inches="tight")
-                    print("  %s" % path.name)
-            else:
-                plt.show()
-            plt.close("all")
-        except Exception as exc:
-            print("\n(Charts skipped: %s: %s)" % (type(exc).__name__, exc))
-            degraded.note("charts", exc)
 
     # --- charts ---
     if not args.no_plots:

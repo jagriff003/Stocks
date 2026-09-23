@@ -50,6 +50,7 @@ metrics and is subperiod-consistent.
 | Track K Tier 2 — hedge layer on ETFs, daily, 2006-2026 | **candidate stands, little room** | -1.4pp CAGR, MaxDD -56% -> -30%, **-4.8pp over 2011-26** (bar 5pp); V-shaped rebounds are the cost (2020: -46pp); fast hand-back and trailing stops redistribute rather than fix |
 | Track K Tier 1 — hedge layer on Track J, 2012-2026 | **fails the bar** | -5.5pp CAGR (phase mean), Sharpe down, no drawdown bought; Track J rotated into energy itself (+39% in 2021-22) and mean-reverts at 63 sessions, so the layer sells its recoveries |
 | Track K option (b) — real-asset ETFs in the Track J pool | **inert** | -0.4pp, 0.5% average weight; the pullback score ranks them in the bottom half, correlation cap irrelevant |
+| Track K option (a) — regime trigger + combined report | **adopted as discretionary input** | fires 3% of months outside inflation episodes, in 1973-74/1977-81/2021-22 (late), misses 1946-48; obeyed on Track J -0.3 to -0.7pp; firing 2026-09 |
 
 Live model: **19.84% CAGR, 0.91 Sharpe, -19.23% max drawdown, Calmar 1.03**,
 net of realistic fills and costs. The honest like-for-like starting point was
@@ -2255,6 +2256,54 @@ inflation episodes (Tier 3: 1973-74 +89%, 1977-81 +50%) and on SPY (Tier 2:
 +1.3pp, +0.20 Sharpe), but the one inflation episode in Track J's record,
 Track J handled itself. **Track K is a preparation model for a regime that is
 not in the record** — option (a) in TODO 0l.
+
+---
+
+## Track K option (a) — a regime trigger, and the combined report
+
+**Built 2026-09-23.** Track K runs alongside Track J as a preparation model
+(`momentum/trackk.py`, `scripts/run_live_combined.py`). It speaks only when a
+trigger fixed before its first run fires: **at least 2 of {gold, silver,
+commodities, energy} beat SPY by 10% over 63 sessions and beat cash, AND the
+1-year stock-bond correlation is positive.** Judged against SPY, not Track J
+(Tier 1: Track J mean-reverts at this horizon). When it fires, each
+qualifying asset takes a 25% slot up to 75% and Track J shrinks pro-rata;
+it evaluates on Track J's rotation Tuesdays.
+
+### Validation (`scripts/analyze_hedge_trigger.py`, criteria stated before the run)
+
+| criterion | result |
+|---|---|
+| fires in 1973-74 | yes — 29% of months, from 1973-01 |
+| fires in 1977-81 | yes — 37% of months, from 1977-02 |
+| fires in 2021-22 | late and thin — 18% of months from 2022-02; daily from 2021-10-12, mostly Oct-Dec 2022 |
+| fires in 1946-48 | **no** — only two of its four assets existed (gold pegged, no silver series); commodities beat the market by 23-26% in late 1946 but energy by only 4% |
+| quiet otherwise (< ~15%) | 3.3% of months 1927-2026; 2.7% of days 2006-2026 |
+| cost if obeyed on Track J, 2012-2026 | **-0.30pp / -0.69pp** (two phases), Sharpe unchanged, hedged 3.5-4% of days — against -5.6pp without the trigger |
+
+It also fires across 2023-2026 (8-16% of days a year), when the stock-bond
+correlation has been positive: the current environment, not a defect. The
+1946-48 miss is a limit of the menu, not a tuned failure; no parameter was
+adjusted to fit it.
+
+### What the first live run showed (2026-09-23)
+
+Firing at the 2026-09-15 rotation and on 09-23: commodities (+19% vs SPY) and
+energy (+12-19%) qualify, stock-bond correlation +0.29/+0.31. Two cautions,
+both measured:
+
+- **Concentration.** Track J's own book is already 44% energy and basic
+  materials. Obeying Track K's 50% on top puts ~72% of the book in energy,
+  materials and commodities — the live form of Tier 1's "Track J already
+  hedges itself". The allocation does not net the overlap; that is a design
+  question, not a default.
+- **It flickers, and it has fired late.** Since 2021 it fires in spells of
+  1-21 sessions, and in 2022 mostly after energy peaked — why obeying it cost
+  8pp over 2021-22 at one phase. Today's spell began 2026-09-11.
+
+It is a slow-regime instrument by construction: a 63-session comparison cannot
+see a 23-session crash (2020) and was built not to. What it prepares for is the
+grind — 1973-74 took 21 months, 1977-81 fifty-seven.
 
 ---
 

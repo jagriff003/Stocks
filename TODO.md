@@ -529,6 +529,24 @@ pullback score ranks them in the bottom half of the cross-section. James,
 2026-09-23: "a prep model for a time that just doesn't exist in the record
 yet" — heading to option (a), design round pending.
 
+### Option (a) BUILT 2026-09-23 (see FINDINGS, Track K option a)
+
+`scripts/run_live_combined.py` after `run_live_trackj.py`: Track J's books,
+Track K's reading and one allocation, each at the last rotation AND current
+(James: off-cycle runs report both, for both tracks). Decision log in
+`data/decisions/decision_log.csv`. Regime trigger validated before it was
+allowed to report. Open design questions from the first live run:
+
+1. **Net the overlap?** Track J was 44% energy/materials on 2026-09-23; Track
+   K's 50% on top made ~72%. Options: size Track K's slots net of Track J's
+   exposure to the same asset class, or accept the stacking as the point.
+2. **Persistence.** The trigger fires in 1-21 session spells. Requiring it to
+   hold on two consecutive rotation Tuesdays would cut flicker; untested.
+
+Also fixed on the way, in `run_live_trackj.py`: a stale chart block referencing
+an undefined `result` marked every charted run degraded (exit 2); and SET 2
+exempted SHY/TLT/IAU from the correlation filter where the rotation does not.
+
 ### Remaining open items
 
 2. **Does the layer shrink the survivorship exposure? (James, 2026-09-23.)**

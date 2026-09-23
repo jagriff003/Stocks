@@ -8,6 +8,7 @@ __pycache__/
 *.csv
 .price_cache/
 charts/
+live/
 
 # ...but the universe and its dated snapshots are source, not output.
 # They stay tracked so universe changes show up as reviewable diffs.
@@ -28,5 +29,7 @@ charts/
 # binary and large; they stay on disk (vintaged) but out of git.
 !data/market/*.csv
 !data/longhistory/*.csv
+# The decision log is James's record of what he did with each recommendation.
+!data/decisions/*.csv
 data/longhistory/raw/
 *.tmp

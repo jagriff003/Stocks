@@ -207,6 +207,27 @@ status instead:
 A task that ignores the exit code will happily report success on a run that
 skipped the health monitor for a month.
 
+### The combined report (Track J + Track K)
+
+After the close (16:15 ET onward), in this order:
+
+```
+python scripts/run_live_trackj.py --no-cache --no-plots     # Track J's books -> live/trackj_book.json
+python scripts/run_live_combined.py                          # refreshes the store, prints both models
+python scripts/run_live_combined.py --action "held; took XLE only" --note "pundits all-in on gold"
+```
+
+The report always shows two recommendations for each model: **at the last
+rotation** (what to hold now) and **current** (what they say on today's close,
+as if it were a rotation — information, not a trade, off-cycle). It refuses to
+look current when Track J's books are from an older session than the store, and
+exits 2.
+
+Every run appends a row to `data/decisions/decision_log.csv`. Fill in `action`
+and `note` (flags above, or by hand afterwards). It is tracked in git on
+purpose: the record of what discretion did is the only way to learn whether it
+helps. `--no-log` for test runs.
+
 ### Market data store (Track K)
 
 The hedge layer decides from `data/market/daily_returns.csv`, kept current by

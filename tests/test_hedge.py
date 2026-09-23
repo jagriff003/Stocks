@@ -229,3 +229,40 @@ def test_relative_reversal_has_no_lookahead():
     for cut in (51, 140, 239):
         part = hedge_weights(stock.iloc[:cut + 1], assets.iloc[:cut + 1], cfg)
         pd.testing.assert_series_equal(full.iloc[cut], part.iloc[-1], check_names=False)
+
+
+def test_regime_trigger_needs_enough_assets_and_positive_stock_bond_corr():
+    idx = pd.date_range("2000-01-31", periods=80, freq="ME")
+    rng = np.random.default_rng(4)
+    stock = pd.Series(rng.normal(-0.01, 0.03, 80), index=idx)
+    bond_neg = -0.8 * stock + rng.normal(0, 0.005, 80)     # classic hedge
+    bond_pos = 0.8 * stock + rng.normal(0, 0.005, 80)      # inflation signature
+    base = dict(GOLD=0.03, OIL=0.03, SILVER=-0.02, CASH=0.001)
+    cfg = HedgeConfig(corr_gate=None, regime_assets=("GOLD", "OIL", "SILVER"), regime_min=2,
+                      regime_corr_asset="UST", regime_corr_above=0.0, corr_window=24)
+    fire = hedge_weights(stock, pd.DataFrame({**base, "UST": bond_pos}, index=idx), cfg)
+    quiet = hedge_weights(stock, pd.DataFrame({**base, "UST": bond_neg}, index=idx), cfg)
+    one = hedge_weights(stock, pd.DataFrame({**base, "OIL": -0.02, "UST": bond_pos}, index=idx), cfg)
+    assert fire.drop(columns="STOCKS").sum(axis=1).iloc[30:].gt(0).all()
+    assert quiet.drop(columns="STOCKS").sum(axis=1).eq(0).all()    # correlation says no
+    assert one.drop(columns="STOCKS").sum(axis=1).eq(0).all()      # only one asset qualifies
+
+
+def test_regime_trigger_has_no_lookahead():
+    stock, assets = panel(seed=17)
+    cfg = HedgeConfig(regime_assets=("GOLD", "CMDTY"), regime_min=1, regime_corr_asset="UST10",
+                      regime_corr_above=-0.5, corr_window=24, decide_every=2)
+    full = hedge_weights(stock, assets, cfg)
+    for cut in (61, 150, 239):
+        part = hedge_weights(stock.iloc[:cut + 1], assets.iloc[:cut + 1], cfg)
+        pd.testing.assert_series_equal(full.iloc[cut], part.iloc[-1], check_names=False)
+
+
+def test_explicit_decision_dates_replace_the_positional_cadence():
+    stock, assets = panel(seed=21, n=200)
+    dates = stock.index[[30, 41, 55, 70, 90, 111, 150]]
+    w = hedge_weights(stock, assets, HedgeConfig(), decide_at=dates)
+    changes = w.index[w.diff().abs().sum(axis=1) > 0]
+    assert set(changes) <= set(dates)
+    part = hedge_weights(stock.iloc[:112], assets.iloc[:112], HedgeConfig(), decide_at=dates)
+    pd.testing.assert_series_equal(w.iloc[111], part.iloc[-1], check_names=False)

@@ -47,6 +47,18 @@ half of dual momentum, and James's "the data says there's danger in the
 regular market".  This was NOT in the pre-registered default and is reported
 as a post-hoc variant.
 
+THE REGIME TRIGGER (option a, agreed 2026-09-23)
+
+Tier 1 found that on Track J the layer must not run continuously: it costs
+~5pp and sells Track J's recoveries.  As a PREPARATION model it should speak
+only when the environment looks like the one it prepares for.  `regime_assets`
+/ `regime_min` open the slots only while at least that many of those assets
+beat the stock book by `enter_margin` and beat cash; `regime_corr_asset` /
+`regime_corr_above` additionally require the stock-bond correlation (stock book
+against that bond, over `corr_window`) to be above the threshold — the positive
+correlation of 1946-48, the 1970s and 2022.  Both are AND-ed with any danger
+gate.  Unset, nothing changes.
+
 HARVEST: CATCH THE OUTSIZED RUN, THEN HAND THE SLOT BACK (James, 2026-09-23)
 
 The hypothesis: in currency and rate stress, direct real-asset exposure runs
@@ -132,6 +144,10 @@ class HedgeConfig:
     fast_exit_lookback: Optional[int] = None
     danger_lookback: Optional[int] = None  # None: slots always open
     danger_margin: float = 0.0            # stocks must trail cash by this
+    regime_assets: Tuple[str, ...] = ()   # the trigger's real-asset set
+    regime_min: int = 0                   # how many must beat stocks (and cash) to fire
+    regime_corr_asset: Optional[str] = None     # bond for the stock-bond condition
+    regime_corr_above: Optional[float] = None   # fire only while that correlation is above this
     harvest_gain: Optional[float] = None  # exit once gain since entry >= this
     harvest_z: Optional[float] = None     # exit (and never enter) at this z of trailing return
     harvest_z_min_history: int = 60       # periods of own history before z is trusted
@@ -150,11 +166,41 @@ def trailing_return(returns: pd.DataFrame, lookback: int) -> pd.DataFrame:
     return np.exp(np.log1p(returns).rolling(lookback, min_periods=lookback).sum()) - 1
 
 
+def regime_open(stock: pd.Series, assets: pd.DataFrame, cfg: HedgeConfig,
+                tr: Optional[pd.DataFrame] = None,
+                tr_stock: Optional[pd.Series] = None) -> np.ndarray:
+    """
+    True where the regime trigger is satisfied (all True when it is not set).
+    NaN history counts as NOT firing: a trigger with no history stays quiet.
+    """
+    ok = np.ones(len(stock), dtype=bool)
+    if cfg.regime_min and cfg.regime_assets:
+        if tr is None:
+            tr = trailing_return(assets, cfg.lookback)
+        if tr_stock is None:
+            tr_stock = trailing_return(stock.to_frame("s"), cfg.lookback)["s"]
+        cash = tr[cfg.cash_asset] if cfg.cash_asset in tr else 0.0
+        names = [a for a in cfg.regime_assets if a in assets.columns]
+        beats = pd.DataFrame({a: (tr[a].sub(tr_stock) > cfg.enter_margin) & (tr[a] > cash)
+                              for a in names})
+        ok &= (beats.sum(axis=1) >= cfg.regime_min).values
+    if cfg.regime_corr_asset is not None and cfg.regime_corr_above is not None:
+        c = stock.rolling(cfg.corr_window, min_periods=cfg.corr_window).corr(
+            assets[cfg.regime_corr_asset])
+        ok &= (c > cfg.regime_corr_above).fillna(False).values
+    return ok
+
+
 def hedge_weights(stock: pd.Series, assets: pd.DataFrame,
-                  config: HedgeConfig) -> pd.DataFrame:
+                  config: HedgeConfig,
+                  decide_at: Optional[Sequence[pd.Timestamp]] = None) -> pd.DataFrame:
     """
     Target weights decided at each row, columns STOCKS plus every asset.
     Row t uses data through t only and is meant to earn row t+1.
+
+    `decide_at`, when given, replaces the positional `decide_every` cadence
+    with explicit decision dates — Track J's rotation Tuesdays, which drift
+    around holidays and so are not every N sessions.
     """
     cfg = config
     names = list(assets.columns)
@@ -175,6 +221,7 @@ def hedge_weights(stock: pd.Series, assets: pd.DataFrame,
         open_slots = (d_stock < d_cash - cfg.danger_margin).values
     else:
         open_slots = np.ones(len(stock), dtype=bool)
+    open_slots = open_slots & regime_open(stock, assets, cfg, tr, tr_stock)
     gated = pd.DataFrame(False, index=assets.index, columns=names)
     if cfg.corr_gate is not None:
         for a in cfg.duration_assets:
@@ -203,10 +250,13 @@ def hedge_weights(stock: pd.Series, assets: pd.DataFrame,
     peak: Dict[str, float] = {}
     blocked_until: Dict[str, int] = {}
     every = max(int(cfg.decide_every), 1)
+    on_date = (np.asarray(stock.index.isin(pd.DatetimeIndex(decide_at)))
+               if decide_at is not None else None)
     for i, t in enumerate(stock.index):
         for a in held:
             peak[a] = max(peak[a], wealth[a].iat[i])
-        if (i - cfg.decide_phase) % every != 0:
+        deciding = on_date[i] if on_date is not None else (i - cfg.decide_phase) % every == 0
+        if not deciding:
             if i > 0:
                 W[i] = W[i - 1]
             continue
