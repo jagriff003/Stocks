@@ -209,6 +209,7 @@ class _PortfolioBuilder:
             elif self.vix_config is not None:
                 exempt_syms = self.vix_config.defensive_symbols
 
+        exempt_syms = tuple(exempt_syms) + tuple(getattr(cfg, "exempt_symbols", ()) or ())
         trace = select_diversified(pool, self.rolling_corr.at(date),
                                    cfg, n, exempt=exempt_syms)
         return trace.selected, trace

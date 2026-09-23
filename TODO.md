@@ -521,6 +521,14 @@ just before Track J's recoveries. Judging on SPY instead still costs 5-6pp.
   weight x (21% - 7%) a year, e.g. ~1.4pp at 10%). Rejected as a "sleeve" on
   2026-09-23 before the evidence; re-offered because timing has now failed.
 
+### Option (b) RUN 2026-09-23 — INERT (see FINDINGS, Track K option b)
+
+Seven component ETFs (DBO, UNG, DBA, DBB, SLV, IAU, UUP) in the Track J pool,
+with and without a correlation-cap exemption: -0.4pp, 0.5% average weight. The
+pullback score ranks them in the bottom half of the cross-section. James,
+2026-09-23: "a prep model for a time that just doesn't exist in the record
+yet" — heading to option (a), design round pending.
+
 ### Remaining open items
 
 2. **Does the layer shrink the survivorship exposure? (James, 2026-09-23.)**

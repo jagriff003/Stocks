@@ -19,7 +19,7 @@ from datetime import date
 from pathlib import Path
 
 from .sizing import SizingConfig
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 
 
 # --------------------------------------------------------------------------
@@ -576,6 +576,11 @@ class CorrelationConfig:
     apply_to_defensive: bool = False # defensive sleeve is chosen for low
                                      # correlation already; filtering it just
                                      # blocks the crisis fill
+    exempt_symbols: Tuple[str, ...] = ()
+    #   Names the selection filter ignores entirely: always accepted, never
+    #   blocking another.  Added 2026-09-23 for Track K option (b), so direct
+    #   real-asset ETFs are not squeezed out by the miners and producers they
+    #   co-move with.  Empty by default, so no existing configuration changes.
 
     # --- universe screen ---
     long_term_window: int = 200

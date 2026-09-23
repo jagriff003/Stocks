@@ -49,6 +49,7 @@ metrics and is subperiod-consistent.
 | Track K Tier 3 — hedge layer, 1927-2026 index level | **shape found, not a choice** | entry margin +10%/3m: 0.0pp full, -1.2pp 2011-26, +81% 1973-74, +36% 2021-22; harvest exits and stock-weakness gating both hurt |
 | Track K Tier 2 — hedge layer on ETFs, daily, 2006-2026 | **candidate stands, little room** | -1.4pp CAGR, MaxDD -56% -> -30%, **-4.8pp over 2011-26** (bar 5pp); V-shaped rebounds are the cost (2020: -46pp); fast hand-back and trailing stops redistribute rather than fix |
 | Track K Tier 1 — hedge layer on Track J, 2012-2026 | **fails the bar** | -5.5pp CAGR (phase mean), Sharpe down, no drawdown bought; Track J rotated into energy itself (+39% in 2021-22) and mean-reverts at 63 sessions, so the layer sells its recoveries |
+| Track K option (b) — real-asset ETFs in the Track J pool | **inert** | -0.4pp, 0.5% average weight; the pullback score ranks them in the bottom half, correlation cap irrelevant |
 
 Live model: **19.84% CAGR, 0.91 Sharpe, -19.23% max drawdown, Calmar 1.03**,
 net of realistic fills and costs. The honest like-for-like starting point was
@@ -2210,6 +2211,50 @@ finding stands: in 1973-74 commodities and bullion tripled while energy
 EQUITIES fell 30%, so a book that hedges through producers can still miss.
 Survivorship inflates Track J's level, which overstates the hedge's measured
 cost; the direction is conservative, the size is unknown (TODO 0d).
+
+---
+
+## Track K option (b) — real-asset ETFs inside the Track J pool: inert, because the score never wants them
+
+**Measured 2026-09-23.** `scripts/analyze_trackj_real_assets.py`. Track J run
+exactly as the live runner builds it (reproduces its stored stream to 1e-16),
+then with seven component ETFs added to the pool: DBO (oil), UNG (natural gas),
+DBA (agriculture), DBB (base metals), SLV, IAU (already present) and UUP. One
+per component, chosen so they do not crowd each other out of the correlation
+cap (pairwise 0.02-0.42; DBC left out at 0.90 with DBO). They bypass the $10M
+volume floor as IAU/SHY/TLT already do; the slippage model still charges them
+on real volume. A plumbing check — the same augmented panel with the
+components unselectable — reproduces Track J exactly.
+
+| arm | dCAGR | dSharpe | real-asset weight |
+|---|---|---|---|
+| + components | -0.43 / -0.41pp (two phases) | -0.02 | 0.5% |
+| + components, exempt from the correlation cap | -0.41 / -0.38pp | -0.02 | 0.5% |
+
+**The score does not want them.** On the pullback score these ETFs sit in the
+bottom half of the cross-section — median percentile 54% (gold) to 90%
+(natural gas) — and make Track J's top 8 on 0-1.7% of rotation dates. In
+2021-22 they held 0.3% of the book. The correlation exemption changes nothing
+(`CorrelationConfig.exempt_symbols`, added for this, default empty) because the
+cap was never what kept them out: pullback-in-a-12-month-uptrend is a
+stock-shaped signal, and low-volatility commodity baskets rarely reach the top
+1.3% of 610 names on it.
+
+**Confirmed along the way (James asked):** sleeves select independently and
+the correlation cap applies within a sleeve only, so a name that re-qualifies
+is held by several sleeves and weighted by the count. The live combined book
+on 2026-09-15 is 32 slots over 29 names; GOOGL, MU and FDX sit in two sleeves
+each at 6.25%.
+
+### Where Track K lands
+
+Every way of making Track J carry real assets has now been measured: as an
+overriding layer (Tier 1: -5.5pp, Sharpe down) and as candidates for its own
+score (option b: inert). The layer protected strongly in the index-level
+inflation episodes (Tier 3: 1973-74 +89%, 1977-81 +50%) and on SPY (Tier 2:
++1.3pp, +0.20 Sharpe), but the one inflation episode in Track J's record,
+Track J handled itself. **Track K is a preparation model for a regime that is
+not in the record** — option (a) in TODO 0l.
 
 ---
 
