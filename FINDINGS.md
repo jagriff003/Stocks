@@ -48,6 +48,7 @@ metrics and is subperiod-consistent.
 | Live-vs-account reconciliation | **the gap is model-version drift** | overlap averaged 25%; the +18% YTD backtest is circular — today's config was chosen *because* 2026 went badly |
 | Track K Tier 3 — hedge layer, 1927-2026 index level | **shape found, not a choice** | entry margin +10%/3m: 0.0pp full, -1.2pp 2011-26, +81% 1973-74, +36% 2021-22; harvest exits and stock-weakness gating both hurt |
 | Track K Tier 2 — hedge layer on ETFs, daily, 2006-2026 | **candidate stands, little room** | -1.4pp CAGR, MaxDD -56% -> -30%, **-4.8pp over 2011-26** (bar 5pp); V-shaped rebounds are the cost (2020: -46pp); fast hand-back and trailing stops redistribute rather than fix |
+| Track K Tier 1 — hedge layer on Track J, 2012-2026 | **fails the bar** | -5.5pp CAGR (phase mean), Sharpe down, no drawdown bought; Track J rotated into energy itself (+39% in 2021-22) and mean-reverts at 63 sessions, so the layer sells its recoveries |
 
 Live model: **19.84% CAGR, 0.91 Sharpe, -19.23% max drawdown, Calmar 1.03**,
 net of realistic fills and costs. The honest like-for-like starting point was
@@ -2144,6 +2145,71 @@ it pays is the months after a V-shaped bottom. Entry margins of 10-15% form the
 plateau (+15%: -0.3pp full, -3.9pp 2011-26). Nothing tested here solves the
 rebound problem without surrendering the protection, and that should be read as
 the price of the insurance rather than a defect waiting for a parameter.
+
+---
+
+## Track K, Tier 1 — on Track J the layer fails the bar: Track J already hedges itself, and its recoveries are what the layer sells
+
+**Measured 2026-09-23.** `scripts/analyze_hedge_trackj.py`. The stock book is
+Track J's own four-sleeve return stream (`trackj_portfolio_performance.csv`,
+asserted to reproduce TODO 0k's 20.81% / 0.73 / -42.99%). Instruments from
+the daily store; results 2012-01 to 2026-09-18. Checks pass: calendars agree to
+the session, zero cap exact, no look-ahead, hand recompute. Correlation window
+252 rather than 756 because Track J's stream starts 2011-10 (Tier 2 measured
+the two as equivalent).
+
+| variant | dCAGR | dSharpe | dMaxDD | calm 2012-19 | 2020-26 | % hedged |
+|---|---|---|---|---|---|---|
+| **candidate (Tier 2)** | **-7.7pp** (all 5 weekly phases: -5.5pp, range -7.7..-4.0) | -0.20 | +1.5pp | -4.2pp | -12.3pp | 49% |
+| entry +15% | -5.0pp | -0.11 | -1.5pp | -3.5pp | -7.1pp | 38% |
+| L=126, entry +20% | -4.4pp | -0.10 | +7.8pp | -2.1pp | -7.6pp | 38% |
+| cap 50% | -5.1pp | -0.09 | +1.0pp | -3.3pp | -7.5pp | 49% |
+| hand back 10d | -3.8pp | -0.08 | 0.0pp | -3.5pp | -4.3pp | 24% |
+| signal judged on SPY, scaling Track J | -5.0 to -6.3pp | -0.08 to -0.16 | -1 to +5pp | | | 34-68% |
+
+Every variant costs Track J 3.8-10.3pp of CAGR with Sharpe falling, and none
+buys meaningful drawdown. The only row inside 5pp is the hand-back setting
+Tier 2 found to be a spike, and it protects nothing (dMaxDD 0.0).
+
+**1. Track J already does the inflation part.** In 2021-22 the French momentum
+decile lost 24%; Track J **gained 39%**. Controlling for SPY, its rolling beta
+to XLE rose to +0.24 in 2022 and to DBC +0.19: the score rotated into energy
+and commodity producers on its own, as its 7/29-energy book on 2026-09-20
+suggested. The episode that paid for the layer on every proxy book pays
+nothing here (2021-22 delta -3.8%).
+
+**2. Track J mean-reverts at the horizon the layer compares on.** Next-63-session
+return by quintile of the past 63 sessions, non-overlapping, 2012-2026:
+
+| book | corr(past, next) | after worst quintile | ... | after best quintile |
+|---|---|---|---|---|
+| Track J | **-0.22** | +7.1% | +6.6% / +5.2% / +3.0% | +1.5% |
+| French top decile | -0.07 | +7.8% | +1.8% / +0.6% / +6.7% | +4.1% |
+| SPY | -0.15 | +5.1% | +3.4% / +2.3% / +2.5% | +3.6% |
+
+Track J's profile is monotone: its weak stretches precede its strong ones —
+the recovery gradient found in the hold-vs-swap work, seen from the book level.
+A competition against Track J's own trailing return hedges exactly before those
+recoveries: -37pp in 2019, -40pp in the 2020 rebound, -75pp across 2023-24.
+
+**3. Judging on the market instead does not rescue it.** With SPY as the
+signal (Tier 2's best book) and Track J scaled, the cost is still -5.0 to
+-6.3pp with Sharpe down. The arithmetic is plain: moving 35-50% of a book that
+compounds near 21% into assets that compound 6-8% costs about 5pp a year, and
+only a real inflation or debasement episode repays it. The one in this window,
+Track J handled itself.
+
+### What this does and does not say
+
+It says the hedge layer as designed should not sit on Track J: it fails the
+agreed 5pp bar and Sharpe falls, which the objective treats as a real
+constraint. It does NOT say Track J is protected against a 1970s-style or
+debasement regime — 2012-2026 contains no such episode, and whether Track J's
+score would rotate into real assets fast enough in one is untested. Tier 3's
+finding stands: in 1973-74 commodities and bullion tripled while energy
+EQUITIES fell 30%, so a book that hedges through producers can still miss.
+Survivorship inflates Track J's level, which overstates the hedge's measured
+cost; the direction is conservative, the size is unknown (TODO 0d).
 
 ---
 

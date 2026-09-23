@@ -500,11 +500,29 @@ layer ADDS +1.3pp and +0.20 Sharpe — so the book decides, and Tier 1 is next.
 tracked in git. Long history: dated raw vintages, research only, `--long`
 monthly. Nothing in the live decision depends on the long-history sources.
 
-### Tier 1 — open items
+### Tier 1 RUN 2026-09-23 — FAILS THE BAR (see FINDINGS, Track K Tier 1)
 
-1. Run the candidate over Track J's own simulated daily returns, 2011-2026.
-   The stock book's trailing return is Track J's, so a Track J that already
-   rotates into energy in 2021-22 leaves less for the layer to add.
+On Track J the candidate costs -5.5pp CAGR (phase mean) with Sharpe down and no
+drawdown bought; every variant costs 3.8-10.3pp. Track J already rotated into
+energy in 2021-22 (+39% while the momentum decile lost 24%), and its returns
+mean-revert at 63 sessions (corr -0.22, monotone quintiles), so the layer hedges
+just before Track J's recoveries. Judging on SPY instead still costs 5-6pp.
+
+**Decision pending (James).** Options on the table:
+- (a) Shelve the layer as a traded mechanism. Keep the store, the layer and the
+  three tiers; optionally print the layer's reading in `run_live_trackj.py` as
+  information, not a trade.
+- (b) Put direct real-asset ETFs (PDBC/DBC, SLV, alongside the IAU already
+  there) INTO the Track J pool, so its own score can select them when they
+  trend. Tier 3: in 1973-74 commodities and bullion tripled while energy
+  equities fell 30% — the direct instrument is what a producer-heavy book lacks.
+  Cheap to test: same backtest, pool plus a handful of ETFs.
+- (c) A small static real-asset allocation as priced insurance (roughly
+  weight x (21% - 7%) a year, e.g. ~1.4pp at 10%). Rejected as a "sleeve" on
+  2026-09-23 before the evidence; re-offered because timing has now failed.
+
+### Remaining open items
+
 2. **Does the layer shrink the survivorship exposure? (James, 2026-09-23.)**
    Mechanism: delistings cluster in stress regimes; if the layer is hedged then,
    the book holds fewer stocks exactly when they die. Measurable in principle as
