@@ -419,6 +419,110 @@ book is 0.16 against 0.34 for the single book.
 
 ---
 
+## 0l. Track K — hedge mode: rotate part of the book into real assets when stocks stop working
+
+**Added 2026-09-23 at James's request.** The pool holds plenty of
+inflation-*sensitive* equity (13 gold miners, 54 energy, 43 REITs, 13 base
+metals) but exactly one direct inflation instrument, IAU. In 2021-22, the one
+inflation episode in the panel, the miners lost 3-6x what gold did (2.2x gold
+beta plus equity beta) and REITs fell 24% in 2022 on the rate shock; energy
+(+97% Jan21-Jun22), ag inputs and base metals were the hedge. Separately, the
+book is not the pool: the 0.70 correlation cap admits at most one gold name
+per selection, and a 12-month score reaches an inflation regime months late.
+
+A cousin of the VIX overlay, on different terms: not "is volatility high" but
+"has the environment turned against owning stocks, and what is working instead."
+
+### Design, agreed 2026-09-23
+
+| question | decision |
+|---|---|
+| what it protects against | (1) inflation / debasement, (2) deflationary crash. A momentum crash (2009) is a separate problem and out of scope. |
+| architecture | **continuous competition, not a regime classifier** ("dual momentum"). Each hedge asset carries its own trend; it takes a slot from the stock book only when it beats the stock book AND beats cash. No inflation forecast; TLT drops out of an inflationary regime on its own. |
+| signals | price-only, plus the **stock-bond correlation** — positive in 1946-48, the 1970s and 2022 — as the gate on duration |
+| instruments | gold (IAU), silver, broad commodities (PDBC, no K-1), energy basket from the pool, TIPS (VTIP / SCHP), SHY / IEF / TLT, short-lease REIT basket, dollar (UUP). Bitcoin deferred. **The account is tax-advantaged**: collectibles tax and K-1s do not bind. **Compliance**: REIT funds are fine unless data-center focused. |
+| size | whole book, not the rotating sleeve; stock sleeves shrink pro-rata; **hedge share capped at 75%** |
+| cadence and exits | weekly evaluation with hysteresis (sweep 1/5/10/20 days — daily cost 2.53pp in Track A); each hedge asset exits on its own faster trend break; regime-off returns capital to stocks at the next rotation |
+| acceptance bar | **up to 5pp CAGR cost over 2011-2026 is acceptable** if the long-history tests show real protection in 1946-48 and 1973-81. Negotiable after the analysis. Sharpe and the rest reported, no bar set going in. |
+| host model | **Track J** (graduating to production over the next several weeks); built as a model-agnostic layer |
+
+### How it is tested — three tiers, each weaker but longer
+
+1. **Tier 3, index level, 1926-2026 (monthly).** Ken French momentum decile as
+   the stock book; French industries (Oil, Mines, RlEst), World Bank Pink Sheet
+   gold / silver / commodity index (from 1960), Treasuries rebuilt from FRED
+   yields, CPI. Covers 1946-48 (yield peg, ~20% CPI, deeply negative real
+   rates — the closest US analogue to debt-driven debasement) and 1973-81.
+   Calibrates the trigger; cannot validate stock selection.
+2. **Tier 2, ETFs, ~2006-2026.** The switch on real instruments; adds 2008,
+   when commodities spiked and crashed within months — the exit-speed test.
+3. **Tier 1, Track J, 2011-2026.** The real model plus the layer. One
+   inflation episode (2021-22), one deflationary crash (2020), and 2015-16 as a
+   false-positive check.
+
+No US data contains hyperinflation. USD debasement looks like a more extreme
+1970s, and that is the limit of what any tier can say.
+
+### Tier 3 RUN 2026-09-23 — see FINDINGS, Track K Tier 3
+
+Real assets ran hard in every inflationary episode (1973-74: commodities +154%,
+stocks -39%); REITs did not. Three design lessons carry into Tiers 2 and 1:
+
+1. **The bare competition is a permanent allocation** (74% of months hedged,
+   -8.2pp in 2011-19). It needs a filter.
+2. **The filter is decisive hedge strength (`enter_margin`), not stock
+   weakness.** A danger gate on the stock book enters 2021-22 five months late;
+   an entry margin of +10% over 3 months costs -1.2pp over 2011-26 and keeps
+   most of the episode payoff.
+3. **Harvest-at-target exits clip the fat tail that makes the episode**
+   (1977-81: +50% -> -29% at a +50% target). The relative-strength exit already
+   returns the slot to stocks near the stock bottom. Keep `harvest_*` in the
+   code as switched-off options; do not carry them forward as defaults.
+
+Next: Tier 2 (ETFs, weekly, 2006-2026) with the entry-margin family as the
+candidate, then Tier 1 on Track J's own simulated returns — the question there
+is how much of this Track J's score already does by rotating into energy.
+
+### Tier 2 RUN 2026-09-23 — see FINDINGS, Track K Tier 2
+
+The candidate (63 sessions, +10% entry margin, weekly, next-close execution)
+halves drawdown for -1.4pp over 2006-26 but costs **-4.8pp over 2011-26**,
+inside the bar with little room. The cost is V-shaped rebounds (2020: -46pp).
+A fast hand-back to stocks and a trailing-stop harvest were both tried; both
+trade crash and inflation protection for rebound participation nearly one for
+one, and neither forms a plateau. Over SPY instead of a momentum book the same
+layer ADDS +1.3pp and +0.20 Sharpe — so the book decides, and Tier 1 is next.
+
+### Data: what the live decision reads, and how it stays current (built 2026-09-23)
+
+`python scripts/update_market_data.py` every session after 16:15 ET (RUNBOOK,
+"Market data store"). Daily store: append-only total returns, overlap-checked,
+tracked in git. Long history: dated raw vintages, research only, `--long`
+monthly. Nothing in the live decision depends on the long-history sources.
+
+### Tier 1 — open items
+
+1. Run the candidate over Track J's own simulated daily returns, 2011-2026.
+   The stock book's trailing return is Track J's, so a Track J that already
+   rotates into energy in 2021-22 leaves less for the layer to add.
+2. **Does the layer shrink the survivorship exposure? (James, 2026-09-23.)**
+   Mechanism: delistings cluster in stress regimes; if the layer is hedged then,
+   the book holds fewer stocks exactly when they die. Measurable in principle as
+   the book's stock weight on delisting dates, hedged vs not. Two notes:
+   - The 0d simulation cannot answer it: its synthetic names are rolled clones
+     that do not co-move with the market, so their "deaths" are not timed to
+     stress. A variant that draws delisting dates with probability rising in
+     market drawdown would test the mechanism directly, with the layer on/off.
+   - Survivorship biases the measured hedge value in the CONSERVATIVE direction
+     either way: the unhedged backtest understates stress-period losses (the
+     dead are missing), so measured protection is understated; and it inflates
+     calm-period stock returns, so the measured cost of hedging is overstated.
+   - It only helps for slow stresses. The layer was 10% hedged through the
+     2020 crash, and it does nothing for idiosyncratic failures in calm markets
+     — which is the case a pullback-buying score is most exposed to.
+
+---
+
 ## 0g. A sell-side framework — volatility-guided trailing stop
 
 **Added 2026-09-20 at James's request.** Everything in this repo is entry-side:

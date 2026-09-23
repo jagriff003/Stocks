@@ -20,3 +20,12 @@ __pycache__/
 
 # Compliance list must be tracked: changes to it have to show in a diff.
 !restricted.csv
+
+# The market store and the built long-history panel are what the hedge layer
+# decides on (TODO 0l).  Tracked so a revised history shows up as a diff rather
+# than as a silently different backtest.  The raw research downloads are
+# binary and large; they stay on disk (vintaged) but out of git.
+!data/market/*.csv
+!data/longhistory/*.csv
+data/longhistory/raw/
+*.tmp

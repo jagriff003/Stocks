@@ -207,6 +207,32 @@ status instead:
 A task that ignores the exit code will happily report success on a run that
 skipped the health monitor for a month.
 
+### Market data store (Track K)
+
+The hedge layer decides from `data/market/daily_returns.csv`, kept current by
+
+```
+python scripts/update_market_data.py            # every session, after 16:15 ET
+python scripts/update_market_data.py --long     # monthly: research vintages + panel
+python scripts/update_market_data.py --verify   # monthly: full-history audit, writes nothing
+```
+
+Same exit convention as above. Status words in the report:
+
+| status | meaning | what to do |
+|---|---|---|
+| `ok` | appended, overlap agreed | nothing |
+| `FILLED` | Yahoo had no bar for a session SPY has; carried flat, move kept on the next day | nothing; if Yahoo posts the bar later it appears as a revision |
+| `REVISION REFUSED` | a stored return changed at source (late dividend, filled hole) | look at the detail, then `--accept-revisions` |
+| `STALE` | symbol ends before SPY | usually Yahoo lag; re-run later |
+| `GAP` | missing sessions inside the history | investigate before trusting the series |
+| `BIG MOVE` | a daily return beyond 20% | confirm against a second instrument (SLV 2026-01-30 -28.5% is real) |
+
+`--add SYM` starts tracking a symbol with its full history. Raw long-history
+downloads live in `data/longhistory/raw/` as dated vintages (out of git,
+never deleted); the built panel and the daily store are tracked so a revised
+history shows up as a diff.
+
 ### Windows Scheduler
 
 Point the action at the venv's python directly rather than at a shell, so no

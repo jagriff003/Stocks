@@ -46,6 +46,8 @@ metrics and is subperiod-consistent.
 | Track J corrected — per-date screen, phase, out-of-sample | **real but noisy** | beats live at 100% of phases; t=1.34 by window, not significant |
 | Correlation cap, absolute 0.70 every rebalance | **adopted** | +2.72pp CAGR, Sharpe 0.64->0.78, and t vs live 1.34->2.61 out of sample |
 | Live-vs-account reconciliation | **the gap is model-version drift** | overlap averaged 25%; the +18% YTD backtest is circular — today's config was chosen *because* 2026 went badly |
+| Track K Tier 3 — hedge layer, 1927-2026 index level | **shape found, not a choice** | entry margin +10%/3m: 0.0pp full, -1.2pp 2011-26, +81% 1973-74, +36% 2021-22; harvest exits and stock-weakness gating both hurt |
+| Track K Tier 2 — hedge layer on ETFs, daily, 2006-2026 | **candidate stands, little room** | -1.4pp CAGR, MaxDD -56% -> -30%, **-4.8pp over 2011-26** (bar 5pp); V-shaped rebounds are the cost (2020: -46pp); fast hand-back and trailing stops redistribute rather than fix |
 
 Live model: **19.84% CAGR, 0.91 Sharpe, -19.23% max drawdown, Calmar 1.03**,
 net of realistic fills and costs. The honest like-for-like starting point was
@@ -1957,6 +1959,191 @@ python scripts/reconcile_trades.py --trades <transactions.csv>
 `reconcile_trades.py` writes its detail to the scratchpad rather than the repo:
 account data does not belong in version control, and this repo's .gitignore
 would swallow a stray CSV silently rather than flag it.
+
+---
+
+## Track K, Tier 3 — the hedge layer over a century: real assets do run in inflation, harvesting them early does not help, and a stock-weakness gate arrives late
+
+**Measured 2026-09-23.** TODO 0l. `scripts/analyze_hedge_history.py`, layer in
+`momentum/hedge.py`, data in `momentum/longhistory.py`. Monthly, 1927-01 to
+2026-07. The stock book is Ken French's top prior-return decile, **not Track
+J**: read the deltas between hedged and unhedged, not the levels. Checks (all
+pass, printed by the script): every series against its traded instrument; zero
+cap reproduces the stock book exactly; no look-ahead under truncation; returns
+recomputed by hand.
+
+> [!important] Two data constructions that would otherwise have flattered this
+> **Monthly averages.** Pink Sheet prices and pre-1962 FRED yields are monthly
+> averages. Crediting avg(t)->avg(t+1) to a position opened at the end of t
+> leaks the second half of month t: that naive series correlates **0.55** with
+> the ETF's return in the month *before* the position opened. The construction
+> used credits avg(t+1)->avg(t+2) instead — leak **-0.06** (gold), matching the
+> ETF's own autocorrelation — and splices in IAU/SLV/DBC month-end returns once
+> they exist. A midpoint interpolation was tried first and rejected: it smooths
+> twice and still leaks.
+> **French "RlEst" is not REITs** (SIC 6798 sits in "Fin"): 0.79 with VNQ. The
+> FTSE Nareit All Equity REITs series replaces it from 1972 (0.998 with VNQ).
+
+### The hypothesis, before any rule: real assets run hard in inflation, and not in deflation
+
+Buy-and-hold over each episode, against the stock book:
+
+| episode | stocks | gold | silver | commodities | energy eq. | REITs | 10y UST |
+|---|---|---|---|---|---|---|---|
+| 1946-48 peg (CPI 11.8%) | +15% | fixed | — | +55% (PPI proxy) | +40% | -38% (not REITs) | +2% |
+| 1973-74 stagflation | **-39%** | **+145%** | **+140%** | **+154%** | -30% | -32% | +2% |
+| 1977-81 surge | +175% | +232% | +109% | +176% | +106% | +123% | -7% |
+| 2008 GFC | -51% | +18% | -10% | -35% | -41% | -65% | +18% |
+| 2021-22 | **-15%** | -15% | -28% | **+71%** | **+176%** | +5% | -22% |
+
+James's hypothesis holds for **commodities, energy and precious metals in
+inflationary episodes**, by wide margins. It does **not** hold for REITs
+(1973-74 -32%) and it inverts in deflationary crashes, where everything but
+Treasuries falls with stocks. Energy *equities* failed in 1973-74 while
+commodities and bullion tripled — the direct instrument mattered exactly when
+it was needed.
+
+### What the layer does with it
+
+Pre-registered default (lookback 3m, 25% slots, 75% cap, correlation gate,
+cash eligible), and the post-hoc variants that matter. Episode columns are
+hedged minus unhedged cumulative return; `2011-26` and `calm` are CAGR deltas.
+
+| variant | dCAGR | dSharpe | 2011-26 | calm 2011-19 | % months hedged | turnover/yr | 1946-48 | 1973-74 | 1977-81 | 2008 | 2021-22 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| **default L=3** | -1.0% | +0.02 | -3.7% | -8.2% | 74% | 276% | -2.8% | +89% | +50% | +25% | +53% |
+| L=1 | +0.3% | +0.10 | -3.6% | -7.6% | 76% | 457% | -3.9% | +80% | +185% | +29% | +27% |
+| L=1 danger 6m | -0.7% | +0.00 | -4.3% | -3.1% | 27% | 197% | -1.1% | +35% | +11% | +13% | +3% |
+| L=3 harvest +50% | -1.4% | +0.01 | -3.2% | -8.0% | 73% | 275% | -3.2% | +68% | -29% | +25% | +61% |
+| **L=3 enter +10%** | **-0.0%** | +0.03 | **-1.2%** | -3.8% | 48% | 136% | +3.3% | +81% | +38% | +16% | +36% |
+| L=6 enter +10% | -0.3% | +0.04 | -2.6% | -3.4% | 58% | 110% | +1.0% | +68% | +119% | +18% | +25% |
+
+**1. The competition alone is a permanent allocation, not a hedge mode.** With
+seven candidates, one beats the stock book over three months by chance most of
+the time: hedged 74% of months, and calm decades pay for it (2011-19 -8.2pp,
+Sharpe 0.83 -> 0.41). The inflation payoffs are real and large; so is the drag.
+
+**2. Gating on stock weakness arrives late — the inflation trade starts while
+stocks are still rising.** The danger gate (hedge only while the stock book
+trails cash) cuts months hedged to 27% and the calm cost to -3.1pp, but first
+hedges 2021-22 in **June 2021** against January for the default, and realises
+-2.7% per unit hedged there against +85%. 1977-81 falls from +50% to +11%.
+Early entry has to come from hedge *strength*, not stock *weakness*.
+
+**3. Harvesting at a target does not help, and the reason is the shape of the
+runs.** A +25% or +50% target, or a z >= 2 "topping expectations" exit, cuts
+1977-81 from +50% to +17% / -29% / -5% and 1973-74 from +89% to +60% / +68% /
++21%. The runs that matter were long (21-57 months) and fat-tailed (silver
++784% in 1977-81), so a fixed target sells the tail that makes the episode.
+The relative-strength exit already does what the harvest was meant to do:
+**the slot returns to stocks when the stock book's trailing return overtakes
+the hedge's**, which in 1974, 1980 and 2022 is close to the stock bottom.
+
+**4. Demanding decisive strength is the better filter.** An entry margin
+(`enter_margin`, the hedge must beat the stock book by 10% over 3 months)
+keeps early entry, halves turnover, cuts months hedged to 48%, and costs
+**-1.2pp over 2011-26** — inside the agreed 5pp bar — for a full-period CAGR
+delta of zero. The margin variants form a smooth trade-off between calm cost
+and episode capture, not a spike, and none of them was tuned.
+
+**5. 1946-48 is a data limit, not a verdict.** With no commodity series before
+1960 the layer had energy, operators, pegged bonds and cash, and lost 2.8%.
+Backfilling commodities with PPI (+55% over the episode) turns the default to
+**+8.9%**. The episode closest to today's debt situation is also the one the
+data supports least.
+
+### What this does not establish
+
+- **Anything about Track J.** The stock book here is 10% of the market. Track
+  J's own score may already rotate into energy in an inflationary regime (its
+  combined book was 7/29 energy on 2026-09-20), which would shrink the layer's
+  marginal value. Tier 1 answers that.
+- **A choice among variants.** 50 variants against six episodes: the table is a
+  shape check. The robust statements are 1-4 above, not any single row.
+- **Pre-1975 gold was not holdable by US persons**; silver and commodities
+  carried 1973-74 regardless (gold averaged 14% of the book there).
+- **Monthly decisions.** The agreed cadence is weekly; Tiers 2 and 1 run it.
+
+---
+
+## Track K, Tier 2 — on the real ETFs the layer halves drawdown for 1.4pp, and V-shaped rebounds are what it costs
+
+**Measured 2026-09-23.** `scripts/analyze_hedge_etfs.py`. Daily, 2006-07 to
+2026-07, instruments from the new daily store (`data/market/`), the stock book
+still Ken French's top momentum decile (not Track J). Checks pass: French
+market vs SPY 0.991 daily with identical calendars, BIL within 0.12%/yr of the
+T-bill, zero cap exact, no look-ahead, hand recompute.
+
+Candidate, fixed before the run as Tier 3's shape in sessions: lookback 63,
+entry margin +10%, 25% slots, 75% cap, weekly decisions, **trades at the next
+session's close**, 10bps.
+
+| | stock book | candidate | delta |
+|---|---|---|---|
+| CAGR 2006-26 | 13.5% | 12.1% | **-1.4pp** |
+| Sharpe (over T-bill) | 0.55 | 0.58 | +0.03 |
+| MaxDD | -56.4% | -30.1% | +26.3pp |
+| **2011-26 CAGR (the 5pp bar)** | | | **-4.8pp** |
+| calm 2011-19 | | | -4.2pp |
+| days hedged / turnover | | 59% / 329% a year | |
+
+| episode | delta | what it held |
+|---|---|---|
+| 2008 H1 commodity spike | +15.7% | commodities, silver, gold |
+| 2008 H2 crash | +23.2% | **dollar, TLT, IEF** — out of commodities by 2008-07-11 |
+| GFC to the low | +39.1% | |
+| 2009 rebound | -17.0% | |
+| 2020 COVID crash | +3.3% | only 10% hedged: too fast for a 63-day comparison |
+| **2020 rebound** | **-45.8%** | TLT, IEF, gold held while the book rose 77% |
+| 2021-22 inflation | +37.5% | energy, commodities, REITs, dollar |
+| 2015-16 commodity crash | -7.3% | |
+| 2025-26 metals run | -7.0% | gold, silver |
+
+**1. The exit-speed test passes.** 2008 was the case monthly data could not
+see: commodities spiked and crashed within six months. The layer rode the
+spike and was in the dollar and Treasuries for the crash.
+
+**2. The cost is V-shaped rebounds, not calm markets.** Right after a crash the
+book's 63-day return is deeply negative, so hedges keep "beating stocks by
+10%" for months into the recovery. 2020's rebound alone cost 46pp.
+
+**3. Handing back fast does not fix it — it redistributes.** A post-hoc rule
+returning the slot to stocks once the book beats the hedge over 10-21 days
+cuts the 2020 rebound loss to -16..-36pp, but gives back crash and inflation
+protection nearly one for one (GFC +39% -> -6..+29%; 2021-22 +38% -> +1..+26%).
+A short window cannot tell a V-rebound from a bear-market rally, and 2008 was
+full of the latter. No setting forms a plateau; the best-looking row (10d,
+21-session blackout) sits between neighbours with worse drawdown than no hedge.
+
+**4. The trailing-stop harvest is inert or fragile.** 15-20% trails almost
+never fire at these slot sizes. 10% with a 21-session blackout is the best row
+in the table (-0.4pp, Sharpe +0.07, and the 2025-26 metals run turns from -7%
+to +7%), but the same trail with a 63-session blackout is -1.2pp with a -41%
+drawdown. A spike, not a shape; not adopted.
+
+**5. The stock-bond correlation gate never mattered.** Over 756 sessions the
+correlation only turned positive in 2026. At 126 or 252 sessions nothing
+changes either: in 2022 TLT dropped out because it lost to cash, which is the
+competition doing the gate's job, as designed.
+
+**6. Cadence: weekly to monthly are indistinguishable; daily is worst.** Across
+every phase: daily -1.9pp; every 5 sessions -0.8pp (range -1.6..+0.9); 10
+sessions -0.5pp; 20 sessions -0.2pp (range -2.6..+3.1). The phase spread is as
+large as the cadence effect, so weekly stays.
+
+**7. The book matters more than any knob.** The same candidate over SPY adds
+**+1.3pp CAGR and +0.20 Sharpe**, halves drawdown (-55% -> -22%) and costs
+-1.9pp over 2011-26. Against a high-return momentum book it costs; against the
+market it pays. Track J is a momentum book, which is why Tier 1 decides this.
+
+### Where this leaves the design
+
+The candidate stands, inside the 5pp bar but with little room (-4.8pp over
+2011-26). What it buys is drawdown and the inflation and crash episodes; what
+it pays is the months after a V-shaped bottom. Entry margins of 10-15% form the
+plateau (+15%: -0.3pp full, -3.9pp 2011-26). Nothing tested here solves the
+rebound problem without surrendering the protection, and that should be read as
+the price of the insurance rather than a defect waiting for a parameter.
 
 ---
 
