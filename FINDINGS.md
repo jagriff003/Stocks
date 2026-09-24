@@ -52,6 +52,7 @@ metrics and is subperiod-consistent.
 | Track K option (b) — real-asset ETFs in the Track J pool | **inert** | -0.4pp, 0.5% average weight; the pullback score ranks them in the bottom half, correlation cap irrelevant |
 | Track K option (a) — regime trigger + combined report | **adopted as discretionary input** | fires 3% of months outside inflation episodes, in 1973-74/1977-81/2021-22 (late), misses 1946-48; obeyed on Track J -0.3 to -0.7pp; firing 2026-09 |
 | Track K trigger timing — lateness and flicker | **characterised, config unchanged** | early in 1973/1977, late in 2021-22; persist-2 halves flicker at no cost, shown as a streak in the report |
+| Smart money, first pass (CFTC S&P and commodity positioning, DIX) | **one fragile PASS, wrong sign; one lead** | asset managers adding preceded weaker Track J (t -2.2, rests on 2020); hedge funds adding preceded stronger (t +1.7); commodity crowding and DIX null |
 
 Live model: **19.84% CAGR, 0.91 Sharpe, -19.23% max drawdown, Calmar 1.03**,
 net of realistic fills and costs. The honest like-for-like starting point was
@@ -2390,6 +2391,63 @@ the case against it is model risk, not timing. Unwinding a sleeve early (at
 week 4) sells the half of its hold that carries half its excess. And a fresh
 sleeve's first fortnight is expected to be dull: do not judge a sleeve, or the
 model, by it.
+
+---
+
+## Smart money, first pass: the flow that passed points the wrong way, and the one that fits the idea is a lead
+
+**Measured 2026-09-24.** `scripts/analyze_smart_money.py`, TODO 0m. James's
+hypothesis: when informed money leaves stocks, the stock book is getting
+lonely. The bar he set: a signal must predict **Track J's** next 42 sessions
+(one sleeve's hold), on top of Track J's own trailing 63-session return. The
+design was fixed before any result. Every Tuesday, 2011-10 to 2026-09 (750
+dates); CFTC data used only 7+ days after its position date, DIX from the next
+session; Newey-West errors for the overlap. Checks pass: point-in-time lags
+asserted, returns recomputed by hand, the Newey-West t recomputed from first
+principles (-2.2074 both ways).
+
+| signal (S&P 500 futures unless noted) | t | 2011-18 | 2019-26 | verdict |
+|---|---|---|---|---|
+| asset managers, 13-week change | **-2.21** | -1.52 | -1.64 | **PASS** |
+| leveraged funds, 13-week change | +1.66 | +1.61 | +1.20 | LEAD |
+| asset managers, 3-year z (crowding) | +0.84 | | | null |
+| leveraged funds, 3-year z | +0.08 | | | null |
+| DIX (dark-pool buying), 20-day z | -1.19 | | | null |
+| crude speculators crowded -> DBC minus Track J | -0.21 | | | null |
+| gold speculators crowded -> IAU minus Track J | -0.32 | | | null |
+| silver speculators crowded -> SLV minus Track J | -0.62 | | | null |
+
+**1. The PASS runs opposite to the hypothesis.** When asset managers ADD to
+S&P futures longs, Track J does worse over the next eight weeks (-1.7 points
+per standard deviation); when they cut, it does better. Quintiles, next 42
+sessions: +5.95% after the heaviest cutting, +0.54% after the heaviest adding
+(middle quintiles lumpy). On this evidence asset managers behave like late
+money, not smart money.
+
+**2. It is fragile.** It rests on 2020: excluding that year, t falls to -1.19;
+dropping 2018-20, -0.95. Dropping any other three-year block leaves it between
+-1.77 and -2.60. The mechanism is visible: asset managers dumped futures into
+the March 2020 crash and Track J then rose 70%. One episode is doing most of
+the work.
+
+**3. The flow that fits the idea is leveraged funds, and it is only a lead.**
+When hedge funds add, Track J does better (t +1.66), and unlike the PASS it
+survives without 2020 (+1.51); quintiles rise from +1.4% to about +5%. The two
+flows are nearly uncorrelated (-0.08) and both survive together (-2.22, +1.68),
+so they are separate signals, not one trade seen from two sides.
+
+**4. Commodity crowding and DIX say nothing about Track J.** Speculator
+crowding in crude, gold and silver does not predict whether moving into those
+assets would have beaten Track J. DIX is null.
+
+**Multiple comparisons.** With eight signals, about one would reach |t| >= 1.5
+by chance, and the chance that at least one reaches 2.2 is about one in five.
+Two reached 1.5. That is consistent with one real effect or with none.
+
+**What was done:** nothing enters a model. Both S&P flows are shown in the
+combined report as an informational gauge (where each sits in its own history,
+and what it has preceded), as agreed. By the pre-registered rule the PASS may
+go on to the Track K timing test; given points 1-2, that is James's call.
 
 ---
 

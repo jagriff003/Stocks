@@ -608,6 +608,23 @@ trigger (Track K) — not whether it predicts on its own. COT has a direct test:
 did commercial positioning mark the 2022 energy top and the 2025-26 metals top
 that the trigger fired late into?
 
+### FIRST PASS RUN 2026-09-24 — see FINDINGS, "Smart money, first pass"
+
+Target Track J's next 42 sessions (James: the bar is beating Track J), eight
+pre-registered signals. Asset-manager flow PASSES but backwards (adding precedes
+weaker Track J) and rests on 2020; leveraged-fund flow is a LEAD in the
+hypothesis's direction and survives without 2020; commodity crowding and DIX
+are null. Shown in the combined report as an informational gauge. Open:
+
+- **The Track K timing test for the PASS** — pre-registered to follow a PASS;
+  James's call given it is fragile and backwards.
+- **Insider buying, second pass.** Correction to the first-pass framing: Form 4s
+  are timely (filed within two business days); only the free bulk history is
+  packaged quarterly. Backfill from the quarterly files using the filing date,
+  and a live signal from EDGAR's daily feed.
+- **Accumulate live readings.** The gauge's history grows every week; a
+  fragile result is best judged on data it has not seen.
+
 ### What would count as an answer
 
 A candidate that adds out of sample, at a cost worth its data plumbing.

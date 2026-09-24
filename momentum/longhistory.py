@@ -119,14 +119,17 @@ def vintages(name: str, raw_dir: Path = RAW_DIR):
     return sorted(Path(raw_dir).glob(f"{stem}__*{ext}"))
 
 
-def _fetch(url: str, name: str, max_age_days: float, verbose: bool) -> bytes:
+def _fetch(url: str, name: str, max_age_days: float, verbose: bool,
+           raw_dir: Path = RAW_DIR) -> bytes:
     """
     The latest vintage if it is younger than `max_age_days`; otherwise download,
     keep a new vintage only if the bytes changed, and fall back to the latest
-    vintage if the download fails.
+    vintage if the download fails.  `raw_dir` lets other research sources
+    (momentum/smartmoney.py) keep their own vintages the same way.
     """
+    RAW_DIR = Path(raw_dir)
     RAW_DIR.mkdir(parents=True, exist_ok=True)
-    have = vintages(name)
+    have = vintages(name, RAW_DIR)
     latest = have[-1] if have else None
     if latest is not None and (time.time() - latest.stat().st_mtime) < max_age_days * 86400:
         return latest.read_bytes()

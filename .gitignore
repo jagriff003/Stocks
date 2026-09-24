@@ -30,6 +30,7 @@ live/
 !data/market/*.csv
 !data/longhistory/*.csv
 data/longhistory/raw/
+data/smartmoney/raw/
 *.tmp
 
 # Personal records: never published.  The folder is backed up elsewhere.

@@ -302,6 +302,37 @@ def _last_close(symbols):
         return {}
 
 
+def smart_money_gauge(latest) -> int:
+    """
+    Informational only (TODO 0m, agreed 2026-09-24): where the two S&P
+    futures positioning flows sit in their own history.  Uses the same
+    point-in-time rule as the study: positions at least 7 days old.
+    """
+    try:
+        from momentum import smartmoney as smm
+        pos = smm.sp500_positioning(verbose=False)
+        sig = smm.cftc_signals(pos).dropna()
+        cur = smm.as_of(sig, pd.DatetimeIndex([latest]), smm.CFTC_LAG_DAYS).iloc[0]
+    except Exception as exc:
+        print(f"\n  (smart-money gauge skipped: {type(exc).__name__}: {exc})")
+        return 2
+    print("\n" + "=" * 100)
+    print("SMART MONEY — informational (FINDINGS, smart money first pass)")
+    print("=" * 100)
+    rows = (("asset_mgr_net_flow", "Asset managers", "heavy ADDING preceded weaker Track J "
+             "(PASS, t -2.2, but rests on 2020; opposite of the smart-money idea)"),
+            ("lev_money_net_flow", "Leveraged funds", "ADDING preceded stronger Track J "
+             "(lead, t +1.7, holds without 2020)"))
+    for col, label, reading in rows:
+        pct = float((sig[col] < cur[col]).mean())
+        side = "adding" if cur[col] > 0 else "cutting"
+        print(f"  {label:<16} 13-week change in S&P futures net long {cur[col] * 100:+.1f} pp of open "
+              f"interest ({side}; {pct:.0%} percentile)")
+        print(f"  {'':<16} historically: {reading}")
+    print(f"  Positions as of {pd.Timestamp(cur['source_date']):%Y-%m-%d}, published the following Friday.")
+    return 0
+
+
 def fill_workbook(path: Path, book: dict, k: dict, latest) -> int:
     """Put the at-last-rotation recommendation into the workbook's Target sheet."""
     from momentum.rebalance_book import fill_target
@@ -405,6 +436,8 @@ def main() -> int:
     if not on_cycle:
         print()
         show_trigger("CURRENT (off-cycle, information only)", k["current"])
+
+    status = max(status, smart_money_gauge(latest))
 
     print("\n" + "=" * 100)
     print("TRACK J — the stock model")
