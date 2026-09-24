@@ -590,6 +590,15 @@ of* what Track J and Track K already see.
 | **ETF flows / margin debt** | the crowd, not smart money | weekly / monthly | partial | a *contrarian* crowding gauge, if anything |
 | "Smart Money Flow Index" (first vs last hour) | nobody identifiable | daily | derivable | folklore; include once, as a null |
 
+### Data probe, 2026-09-24 — all free, all programmatic
+
+| source | coverage | access | caveat |
+|---|---|---|---|
+| CFTC Traders in Financial Futures, E-mini S&P 500 | weekly, 2006-06 → now, 1,333 reports | public Socrata API (`gpe5-46if`) | Tuesday positions released Friday: lag to the release date |
+| CFTC disaggregated, crude / gold / silver / copper | weekly, 2006-06 → 2026-09-15 | Socrata API (`72hh-3qpy`) | contract names changed in 2022: join on the CFTC contract code, not the name |
+| SqueezeMetrics DIX / GEX | daily, 2011-05 → yesterday | one CSV | vendor-computed and not auditable; history could be revised — snapshot it going forward |
+| SEC insider transactions (Form 3/4/5) | quarterly zips, 2006 → 2026Q1 (~17MB each) | sec.gov, needs a User-Agent | runs a quarter behind; a live signal needs EDGAR's daily feed |
+
 ### What to measure
 
 For each candidate that can be built point-in-time for free (insider, COT,
@@ -605,6 +614,61 @@ A candidate that adds out of sample, at a cost worth its data plumbing.
 Otherwise a recorded null, like Tracks A-D, so it is not re-proposed. Note the
 multiple-comparisons load (TODO 7): seven candidates tried means one will look
 good by chance.
+
+---
+
+## 0n. Decompose price action: trend, noise, and shock — for a better line of sight on trends
+
+**Added 2026-09-24 at James's request.** Split a stock's price action into
+(a) trend, (b) natural variation, (c) random walk, (d) shocks such as events and
+earnings surprises, and see whether any of it sharpens Track J. Well-trodden
+ground, and professionals do it better; the question is only whether it adds
+to *this* score.
+
+### Making it closer to MECE
+
+(b) and (c) are not separate things: volatility is the *size* of the random
+walk, not an extra component. Additive in daily returns, the decomposition is
+
+    return = drift (trend)  +  mean-reverting part  +  jump (shock)  +  sigma_t x noise
+
+so there are four parts, and volatility (sigma_t) scales the last one. The
+mean-reverting part is not on James's list, but it is the one Track J already
+trades: the pullback term is a short-horizon reversal, and it resolves in weeks
+3-8 of a sleeve (FINDINGS, sleeve age).
+
+### Methods, and the trap
+
+- **Trend:** a Kalman local-linear-trend filter, exponential smoothing, or a
+  rolling regression slope. Track J already measured the last one — a slope
+  t-statistic carried nothing (`strength_weight = 0`) — so the bar is a trend
+  estimate better than that one.
+- **Noise and volatility:** GARCH or realized volatility for sigma_t;
+  variance-ratio tests (Lo-MacKinlay) or a Hurst exponent for "random walk or
+  trending", per name and rolling.
+- **Shocks:** jump detection on daily data (bipower variation, Lee-Mykland),
+  overnight gaps (this repo has measured the overnight premium), and earnings
+  dates where the history can be had.
+- **THE TRAP:** HP filters, STL, wavelets, EMD and Savitzky-Golay smoothers are
+  two-sided. At the latest date they use future data, so their trend looks
+  prescient in a backtest and does not exist live. Only one-sided (causal)
+  estimates are admissible, and every candidate gets the truncation test this
+  repo applies to signals (`tests/test_reversal.py`).
+
+### The most promising concrete hypothesis
+
+**Why a stock pulled back matters.** Post-earnings drift says shocks tend to
+continue; a pullback that is just diffusion noise tends to revert. Track J buys
+pullbacks without asking which kind. Splitting its candidates by whether the
+pullback came from a jump (earnings, gap) or from ordinary noise, and measuring
+the forward return of each, is a direct test with a clear mechanism.
+
+### What would count as an answer
+
+A causal component that raises the pullback score's information coefficient
+out of sample on the wide pool, **conditional on the existing score** (partial
+IC), stable in both halves of 2012-2026. Otherwise a recorded null. Same
+multiple-comparisons caution as 0m (TODO 7).
 
 ---
 
