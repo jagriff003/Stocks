@@ -1869,11 +1869,13 @@ accepted as a known risk by decision, not by evidence.
 ## The account was not running the model — and that dwarfs every signal result in this file
 
 **Run 2026-09-20.** `scripts/analyze_ytd_gap.py` and `scripts/reconcile_trades.py`,
-the latter against the account's transaction export (2026-01 to 2026-09).
+the latter against the account's actual transaction export. Account figures and
+holdings are deliberately kept out of this public file.
 
-The production backtest reports **+18.04% YTD**. The account's realised result was far below it. That divergence is larger than every effect measured anywhere in
-this document, and until it was explained, every comparison here was a statement
-about a simulation rather than about money.
+The production backtest reports **+18.04% YTD**; the account's realised result
+was far below it. That divergence is larger than every effect measured anywhere
+in this document, and until it was explained, every comparison here was a
+statement about a simulation rather than about money.
 
 ### It is not the universe
 
@@ -1891,17 +1893,8 @@ universe should have earned more, not less.
 ### It is not execution either
 
 It is that **the account and the model were holding different books**, for most
-of the year.
-
-| | modelled | actually held | overlap |
-|---|---|---|---|
-| 2026-01-06 | XOM LLY CAH STT | (private) | 0/4 |
-| 2026-01-20 | XOM LMT PM ULTA | (private) | 0/4 |
-| 2026-02-17 | GILD LMT XOM CNP | (private) | 0/4 |
-| 2026-03-17 | PWR COST STX MPC | (private) | 1/4 |
-| 2026-05-12 | STX PWR NVDA CAT | (private) | 0/4 |
-| 2026-07-07 | LYV V PGR SPG | (private) | 2/4 |
-| 2026-09-01 | MPC MSFT WELL KO | (private) | 3/4 |
+of the year. Three of the first four rotations had no name in common with the
+modelled book.
 
 Monthly overlap: **0%, 0%, 17%, 25%, 12%, 25%, 50%, 12%, 62%.**
 
@@ -1927,15 +1920,15 @@ the distinction was unavailable until the trade log arrived.
 Corrected 2026-09-20 on James's account of what happened: the early-year trades
 followed the model as it ran at the time. They were not discretionary deviations
 — they simply predate the config snapshots, so there is no record of what the
-model said then, and today's code does not reproduce it. A 0/4 January overlap
+model said then, and today's code does not reproduce it. A zero January overlap
 compares the account against a retrospective book that never existed.
 
 **Which makes the +18.04% YTD backtest circular.** The current live model exists
 *because* the old one performed poorly over this very period: the scoring
 defects were found and fixed in response to 2026's results. Backtesting today's
 code over 2026 therefore measures a configuration selected with knowledge of the
-outcome. The +18.04% was never available to anyone, and the realised result is what running
-a model in real time actually produced.
+outcome. The +18.04% was never available to anyone; the realised result is what
+running a model in real time actually produced.
 
 This is the cleanest example in the repo of why "read deltas, not levels" is
 written at the top of this document — and a caution that applies to Track J
@@ -1949,7 +1942,8 @@ book, not more discipline.
 
 ### What is still unmeasurable
 
-The transaction export has no starting balance, so the account's true return cannot be computed from it. Overlap and missed
+The transaction export has no starting balance, so the account's true return
+cannot be computed from it. Overlap and missed
 contribution are the measurable parts. Anything claiming a headline account P&L
 from this data would be invented, and the script says so rather than guessing.
 
@@ -1960,9 +1954,9 @@ python scripts/analyze_ytd_gap.py
 python scripts/reconcile_trades.py --trades <transactions.csv>
 ```
 
-`reconcile_trades.py` writes its detail to the scratchpad rather than the repo:
-account data does not belong in version control, and this repo's .gitignore
-would swallow a stray CSV silently rather than flag it.
+`reconcile_trades.py` writes its detail to `private/`, which is git-ignored:
+account data does not belong in version control. The full account-level
+version of this section is kept there too.
 
 ---
 

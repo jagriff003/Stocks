@@ -7,7 +7,7 @@ PowerShell:
 
 ```powershell
 # 0. setup, once per terminal
-cd C:\Users\USER\OneDrive\Analytics\Stocks
+cd $env:USERPROFILE\OneDrive\Analytics\Stocks
 $py = ".\.venv-1\Scripts\python.exe"
 
 # 1. production (the traded model until Track J graduates)
@@ -27,7 +27,7 @@ $py = ".\.venv-1\Scripts\python.exe"
 
 ```powershell
 & $py scripts\record_decision.py --action "what you did" --note "why"
-git add snapshots data/decisions data/market; git commit -m "Rotation YYYY-MM-DD"
+git add snapshots data/market; git commit -m "Rotation YYYY-MM-DD"
 ```
 
 Off-cycle days: steps 0, 2, 3 only. Nothing to trade: CURRENT is information.
@@ -72,7 +72,7 @@ Every block below is **PowerShell** (the VS Code terminal) and calls the venv's
 python directly, so nothing needs activating. Paste this once per terminal:
 
 ```powershell
-cd C:\Users\USER\OneDrive\Analytics\Stocks
+cd $env:USERPROFILE\OneDrive\Analytics\Stocks
 $py = ".\.venv-1\Scripts\python.exe"
 ```
 
@@ -112,10 +112,11 @@ Then:
    ```
    The combined report already logged its recommendation when it ran; this
    fills in your action against that row. `--show` prints the recent log.
-9. **Commit the record** (the pool snapshot, config snapshot and decision log
-   are source, not output — they only have value if they accumulate):
+9. **Commit the record** (the pool and config snapshots are source, not output
+   — they only have value if they accumulate). The decision log is personal and
+   git-ignored; it stays in the folder, which is backed up:
    ```powershell
-   git add snapshots data/decisions data/market; git commit -m "Rotation 2026-09-29"
+   git add snapshots data/market; git commit -m "Rotation 2026-09-29"
    ```
 
 ### Other days — optional
@@ -281,8 +282,9 @@ the log answers whether discretion helped — which nothing else in this repo ca
 | path | what | in git |
 |---|---|---|
 | `data/market/daily_returns.csv` | daily total returns for every Track K instrument; what the report reads | yes — revisions show as diffs |
-| `data/market/update_log.csv` | every store update and its checks | yes |
-| `data/decisions/decision_log.csv` | each report's recommendation, and what you did | **yes — this is the record** |
+| `data/market/update_log.csv` | every store update and its checks | no — personal run history |
+| `data/decisions/decision_log.csv` | each report's recommendation, and what you did | **no — personal**; lives in the backed-up folder |
+| `private/` | account-level material (reconciliations, trade exports) | **no — never** |
 | `data/longhistory/` | 1926– research panel (built) and raw vintages (`raw/`, never deleted) | panel yes, raw no |
 | `snapshots/pool/`, `snapshots/config/` | point-in-time pool and config per Track J run — the only thing that can ever settle survivorship | **yes — commit them** |
 | `live/trackj_book.json` | Track J's books for the combined report | no (regenerated) |
@@ -382,9 +384,9 @@ Point the action at the venv's python directly rather than at a shell, so no
 console is needed:
 
 ```
-Program:   C:\Users\USER\OneDrive\Analytics\Stocks\.venv-1\Scripts\python.exe
+Program:   %USERPROFILE%\OneDrive\Analytics\Stocks\.venv-1\Scripts\python.exe
 Arguments: scripts\run_live.py --save-charts charts
-Start in:  C:\Users\USER\OneDrive\Analytics\Stocks
+Start in:  %USERPROFILE%\OneDrive\Analytics\Stocks
 ```
 
 Schedule it **after the close** — the panel must contain the session you intend

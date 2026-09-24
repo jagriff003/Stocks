@@ -1,7 +1,8 @@
 """
 Reconcile an actual trade history against the modelled book.
 
-TODO item 2.  The production backtest reports +18.04% YTD, far above the account's realised result.  `analyze_ytd_gap.py` established that the universe change
+TODO item 2.  The production backtest reports +18.04% YTD, far above the
+account's realised result.  `analyze_ytd_gap.py` established that the universe change
 does not explain it — it works the other way — and that the backtest's whole
 year comes from five names.  This takes the other side: what was ACTUALLY held,
 and where it diverged from what the model said to hold.
@@ -29,8 +30,8 @@ separable by eye rather than conflated.
 PRIVACY
 
 Reads the transaction file from wherever it is given and writes its output to
-the scratchpad by default.  Account data does not belong in the repo, and the
-repo's .gitignore would silently swallow a stray CSV rather than flag it.
+`private/` by default, which is git-ignored.  Account data does not belong in a
+public repository.
 
 Run:  python scripts/reconcile_trades.py --trades path/to/transactions.csv
 """
@@ -184,10 +185,7 @@ def main() -> int:
         print(f"    {k}   {v:>5.0%}   {'#' * int(round(v * 20))}")
 
     out = Path(args.out) if args.out else (
-        Path(r"C:\Users\USER\AppData\Local\Temp\claude"
-             r"\c--Users-USER-OneDrive-Analytics-Stocks"
-             r"\07cca480-f9e9-48bc-b70b-944d5c94900b\scratchpad")
-        / "trade_reconciliation.csv")
+        Path(__file__).resolve().parent.parent / "private" / "trade_reconciliation.csv")
     out.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame([{**r, "Modelled": " ".join(r["Modelled"]),
                    "Actual": " ".join(r["Actual"]),

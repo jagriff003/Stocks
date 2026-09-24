@@ -1,5 +1,6 @@
 """
-Why does the production backtest say +18% YTD when the account's realised result was far below it?
+Why does the production backtest say +18% YTD when the account's realised
+result was far below it?
 
 A divergence that size on the model actually being traded is larger than every
 effect measured in the Track J work, and it decides whether any backtest delta

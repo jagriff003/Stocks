@@ -27,7 +27,7 @@ rotation Tuesdays.
 
 THE DECISION LOG
 
-Every run appends a row to `data/decisions/decision_log.csv` (tracked in git):
+Every run appends a row to `data/decisions/decision_log.csv` (personal, git-ignored):
 what each model recommended, and — via --action / --note here, or afterwards
 with `scripts/record_decision.py` without re-running the models — what was
 actually done and why.  Discretion is the point of option

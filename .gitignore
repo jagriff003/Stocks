@@ -29,7 +29,14 @@ live/
 # binary and large; they stay on disk (vintaged) but out of git.
 !data/market/*.csv
 !data/longhistory/*.csv
-# The decision log is James's record of what he did with each recommendation.
-!data/decisions/*.csv
 data/longhistory/raw/
 *.tmp
+
+# Personal records: never published.  The folder is backed up elsewhere.
+#   decision log   what was done with each recommendation
+#   update_log     when the store was refreshed (run history)
+#   private/       account-level material: reconciliations, trade exports
+# Listed after the data/market negation above so it wins.
+data/decisions/
+data/market/update_log.csv
+private/
