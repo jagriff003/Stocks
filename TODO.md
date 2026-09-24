@@ -570,6 +570,44 @@ exempted SHY/TLT/IAU from the correlation filter where the rotation does not.
 
 ---
 
+## 0m. A "smart money" signal — is any of it measurable, and does it add to the models?
+
+**Added 2026-09-24 at James's request.** Money flows look sensitive to what
+informed participants do, but "smart money" is usually folklore with a chart
+attached. The standard here applies: a candidate is worth using only if it
+predicts forward returns (an information coefficient) out of sample, *on top
+of* what Track J and Track K already see.
+
+### Candidates, by what they could inform and whether the data is free
+
+| candidate | who it tracks | frequency, lag | free? | would inform |
+|---|---|---|---|---|
+| **Insider buying** (SEC Form 4; cluster buys, "opportunistic" trades) | executives with private information | daily, ~2 days | yes (EDGAR) | Track J — per name, cross-sectional; the best-documented in the literature |
+| **CFTC Commitments of Traders** (commercials vs large speculators) | hedgers and funds in oil, gold, Treasuries, the dollar | weekly, 3 days | yes (CFTC) | Track K — positioning in exactly its assets; the crowding James worries about |
+| **Short interest** (FINRA) | short sellers | twice monthly, ~2 weeks | yes | Track J — crowded shorts, squeeze risk |
+| **Dark-pool / dealer positioning** (SqueezeMetrics DIX, GEX) | institutional off-exchange buying, dealer hedging | daily | public CSV | market level — a regime input, like VIX was |
+| **13F holdings** | large institutions | quarterly, 45 days | yes | too slow for a biweekly model; probably reject |
+| **ETF flows / margin debt** | the crowd, not smart money | weekly / monthly | partial | a *contrarian* crowding gauge, if anything |
+| "Smart Money Flow Index" (first vs last hour) | nobody identifiable | daily | derivable | folklore; include once, as a null |
+
+### What to measure
+
+For each candidate that can be built point-in-time for free (insider, COT,
+short interest, DIX first): the IC against forward 2-, 4- and 8-week returns,
+walk-forward, and whether it adds to the pullback score (Track J) or the
+trigger (Track K) — not whether it predicts on its own. COT has a direct test:
+did commercial positioning mark the 2022 energy top and the 2025-26 metals top
+that the trigger fired late into?
+
+### What would count as an answer
+
+A candidate that adds out of sample, at a cost worth its data plumbing.
+Otherwise a recorded null, like Tracks A-D, so it is not re-proposed. Note the
+multiple-comparisons load (TODO 7): seven candidates tried means one will look
+good by chance.
+
+---
+
 ## 0g. A sell-side framework — volatility-guided trailing stop
 
 **Added 2026-09-20 at James's request.** Everything in this repo is entry-side:

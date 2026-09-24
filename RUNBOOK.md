@@ -22,8 +22,14 @@ $py = ".\.venv-1\Scripts\python.exe"
 
 4. **Check:** every `Signal session` / last-session date is **today**, and each
    script exited 0. If not, see part 5.
-5. **Decide** (part 4 if Track K is FIRING). **Trade at Wednesday's open.**
-6. **Record and commit:**
+5. **Decide** (part 4 if Track K is FIRING). Step 3 has already filled the
+   workbook's Target sheet: open `private\Rebalance.xlsx`, enter each account's
+   cash (Setup) and shares (Holdings), set Track K's Take = Y if you act, and
+   check Setup says **READY**.
+6. **Trade at Wednesday's open** from the workbook's **Trades** sheet (phone or
+   iPad): sells first, then buys; tick Done. Afterwards copy Plan's "shares
+   after" columns into Holdings.
+7. **Record and commit:**
 
 ```powershell
 & $py scripts\record_decision.py --action "what you did" --note "why"
@@ -155,6 +161,19 @@ before.
 
 ---
 
+### The rebalance workbook (once)
+
+```powershell
+& $py scripts\build_rebalance_workbook.py     # creates private\Rebalance.xlsx; never overwrites without --force
+```
+
+From then on the combined report fills its **Target** sheet every run (Track J
+at full weight, Track K at Take = N, your earlier choices kept). The workbook's
+own **Guide** sheet explains every input. How a name splits across the Roth and
+the Traditional is its **Placement**: Auto keeps it where it is held, and new
+names split in proportion to each account's free cash, which keeps both fully
+invested. If the report says the workbook is open elsewhere, close it and re-run.
+
 ## 3. Reading the combined report
 
 Top to bottom:
@@ -285,6 +304,7 @@ the log answers whether discretion helped — which nothing else in this repo ca
 | `data/market/update_log.csv` | every store update and its checks | no — personal run history |
 | `data/decisions/decision_log.csv` | each report's recommendation, and what you did | **no — personal**; lives in the backed-up folder |
 | `private/` | account-level material (reconciliations, trade exports) | **no — never** |
+| `private/Rebalance.xlsx` | the two-IRA rebalance workbook; Target filled by the combined report | **no — account data** |
 | `data/longhistory/` | 1926– research panel (built) and raw vintages (`raw/`, never deleted) | panel yes, raw no |
 | `snapshots/pool/`, `snapshots/config/` | point-in-time pool and config per Track J run — the only thing that can ever settle survivorship | **yes — commit them** |
 | `live/trackj_book.json` | Track J's books for the combined report | no (regenerated) |

@@ -47,6 +47,15 @@ when `run_live_trackj.py --save-charts charts` has saved them for the same
 session — the saved images, not a recomputation, so what you see is exactly
 what Track J produced.  They are not re-saved.
 
+THE REBALANCE WORKBOOK
+
+If `private/Rebalance.xlsx` exists (create it once with
+`scripts/build_rebalance_workbook.py`), its Target sheet is filled with the
+recommendation AT THE LAST ROTATION: Track J at full weight, Track K rows at
+Take = N (your call), with your earlier Take / My weight / Placement choices
+kept.  The workbook turns that into share orders for the two IRAs.
+`--no-workbook` skips it.
+
 `--no-show` saves without opening windows (for a scheduled run, which would
 otherwise block on plt.show()); `--no-plots` skips charts entirely.
 
@@ -276,6 +285,53 @@ def chart_allocation(rows, sectors, path):
     return fig
 
 
+def _last_close(symbols):
+    """Latest close for a few ETFs (the store holds returns, not prices)."""
+    if not symbols:
+        return {}
+    try:
+        import warnings
+        import yfinance as yf
+        warnings.filterwarnings("ignore")
+        px = yf.download(sorted(symbols), period="5d", auto_adjust=True, progress=False)["Close"]
+        if isinstance(px, pd.Series):
+            px = px.to_frame(sorted(symbols)[0])
+        last = px.ffill().iloc[-1]
+        return {s: float(last[s]) for s in symbols if s in last and pd.notna(last[s])}
+    except Exception:
+        return {}
+
+
+def fill_workbook(path: Path, book: dict, k: dict, latest) -> int:
+    """Put the at-last-rotation recommendation into the workbook's Target sheet."""
+    from momentum.rebalance_book import fill_target
+    if not path.exists():
+        print(f"\n  Rebalance workbook: {path.name} not found - create it once with "
+              f"`scripts/build_rebalance_workbook.py`")
+        return 0
+    lr = book["last_rotation"]
+    prices = dict(book.get("prices", {}))
+    kw = k["last_rotation"]["weights"]
+    prices.update(_last_close([s for s in kw if s not in prices]))
+    rows = [{"symbol": s, "model": "J", "weight": w, "price": prices.get(s)}
+            for s, w in sorted(lr["weights"].items(), key=lambda x: (-x[1], x[0]))]
+    rows += [{"symbol": s, "model": "K", "weight": w, "price": prices.get(s)}
+             for s, w in sorted(kw.items())]
+    try:
+        res = fill_target(rows, f"{latest:%Y-%m-%d}",
+                          f"combined report, at last rotation {lr['date']}", path)
+    except PermissionError:
+        print(f"\n  *** Rebalance workbook is open elsewhere - close it and re-run "
+              f"(or use --no-workbook). Not updated. ***")
+        return 2
+    missing = [r["symbol"] for r in rows if not r["price"]]
+    print(f"\n  Rebalance workbook updated: {path.name} Target sheet, {res['rows']} rows "
+          f"({len(kw)} Track K at Take = N unless you chose otherwise"
+          + (f"; {res['carried_k']} held Track K row(s) kept" if res["carried_k"] else "")
+          + ")" + (f".  No price for {', '.join(missing)} - type it in." if missing else ""))
+    return 0
+
+
 def append_log(row: dict) -> None:
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
     new = pd.DataFrame([row])[LOG_COLUMNS]
@@ -294,6 +350,9 @@ def main() -> int:
     ap.add_argument("--charts-dir", default="charts", help="where charts are saved (default charts/)")
     ap.add_argument("--no-show", action="store_true", help="save charts without opening windows")
     ap.add_argument("--no-plots", action="store_true", help="no charts at all")
+    ap.add_argument("--workbook", default=str(REPO_ROOT / "private" / "Rebalance.xlsx"),
+                    help="rebalance workbook to fill (default private/Rebalance.xlsx)")
+    ap.add_argument("--no-workbook", action="store_true", help="do not touch the workbook")
     args = ap.parse_args()
     if args.no_show and not args.no_plots:
         import matplotlib
@@ -408,6 +467,9 @@ def main() -> int:
         except Exception as exc:
             print(f"\n  (charts skipped: {type(exc).__name__}: {exc})")
             status = max(status, 2)
+
+    if not args.no_workbook:
+        status = max(status, fill_workbook(Path(args.workbook), book, k, latest))
 
     if not args.no_log:
         kl, kc = k["last_rotation"], k["current"]

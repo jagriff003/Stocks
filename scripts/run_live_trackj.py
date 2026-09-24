@@ -604,6 +604,10 @@ def main() -> int:
                 "would_buy": list(fresh),
                 "weights": {n: c / total_slots for n, c in now_counts.items() if c > 0},
             },
+            # the signal session's close, for the rebalance workbook
+            "prices": {n: round(float(close_now[n]), 4)
+                       for n in sorted(set(held) | set(fresh))
+                       if n in close_now.index and pd.notna(close_now[n])},
         }
         live = REPO_ROOT / "live"
         live.mkdir(exist_ok=True)
