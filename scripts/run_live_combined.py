@@ -118,18 +118,23 @@ def show_allocation(label, alloc, account):
 
 # --- charts -------------------------------------------------------------------
 #
-# Colours are the reference palette's categorical slots, used in their
-# validated order so adjacent stacked segments are pairs that were checked;
-# every segment and every line end also carries a text label, so identity
-# never rests on colour alone.  Colour follows the entity: gold is the same
+# Colours validated with the dataviz palette validator (2026-09-24): the four
+# trigger lines pass ALL pairs (they cross) — energy is violet, not yellow,
+# because yellow and orange fail the normal-vision floor (dE 13.7 < 15).  Bar
+# segments pass adjacent pairs; Track J is drawn in neutrals because green or
+# yellow beside silver's orange fails for colour-blind readers.  Every line
+# end and segment also carries a text label, so identity never rests on
+# colour alone (aqua, magenta sit below 3:1 contrast: labels are the relief).  Colour follows the entity: gold is the same
 # blue in both charts.  Text stays in ink, never in a series colour.
 SURFACE, INK, INK2, GRID, SHADE = "#fcfcfb", "#0b0b0b", "#52514e", "#e4e3df", "#ecebe7"
 ENTITY = {
     "GOLD": ("gold", "#2a78d6"), "SILVER": ("silver", "#eb6834"),
-    "CMDTY": ("commodities", "#1baf7a"), "ENERGY": ("energy", "#eda100"),
+    "CMDTY": ("commodities", "#1baf7a"), "ENERGY": ("energy", "#4a3aa7"),
     "K_OTHER": ("Track K other", "#e87ba4"),
-    "J_REAL": ("Track J energy & materials", "#008300"),
-    "J_OTHER": ("Track J other stocks", "#4a3aa7"),
+    # Track J in neutrals: colour is reserved for Track K's assets, and no hue
+    # left in the palette is colour-blind-safe beside all of them.
+    "J_REAL": ("Track J energy & materials", "#52514e"),
+    "J_OTHER": ("Track J other stocks", "#b8b7b0"),
 }
 ROLE_OF_LIVE = {v: k for k, v in LIVE_SYMBOL.items()}
 
@@ -251,7 +256,7 @@ def chart_allocation(rows, sectors, path):
             drawn.add(key)
             ax.barh(y, w, left=left, height=0.5, color=color, edgecolor=SURFACE, linewidth=2)
             if w >= 0.06:
-                dark = key in ("GOLD", "J_REAL", "J_OTHER", "SILVER")
+                dark = key in ("GOLD", "SILVER", "ENERGY", "J_REAL")
                 ax.text(left + w / 2, y, f"{name}\n{w:.0%}", ha="center", va="center",
                         fontsize=8.5, color="#ffffff" if dark else INK)
             left += w
