@@ -1,5 +1,43 @@
 # TODO — open work, roughly in order of expected value
 
+## PRIORITIES — re-ranked 2026-09-24 by probability of success
+
+James: "Feels like we are plateauing." Every open item, ranked by the chance it
+produces a usable answer (P answer) and, separately, the chance it improves
+returns (P gain) — they differ, and a certain answer that improves nothing is
+still worth having when it is cheap. Estimates are judgement, not measurement.
+
+| rank | item | P answer | P gain | cost | why |
+|---|---|---|---|---|---|
+| 1 | **0h #3, #5, #6** — ties, restated closes in `range_pos`, per-name staleness | ~95% | low | small | Track J graduates on 9/30; correctness before return |
+| 2 | **2** — reconcile the account against Track J around 11/24 | ~90% | high | small | the largest number in this file was the book not being followed |
+| 3 | **8** — factor attribution | ~90% | none | small | unblocked: the Ken French data is now in the repo (Track K) |
+| 4 | **7** — deflated Sharpe | ~85% | none | small | a tally and a formula; the honest haircut on every headline |
+| 5 | **0n** — why did it pull back? shock vs noise | ~70% | ~30-40% | medium | literature-backed (see below); needs only gaps and volume already in the panel |
+| 6 | **9** — drawdown measures that aggregate episodes | ~90% | none | small | many findings turn on one max-drawdown number |
+| 7 | **0e** — sector cap / drawdown-aware book | ~70% | ~15% | medium | the worst books were 100% one sector; prior against de-risking (Track A) |
+| 8 | **0l** — Track K: persist-2, netting the overlap | ~60% | ~20% | small | decide after live episodes, from the decision log |
+| 9 | **6** — survivorship, frozen-vintage universe | ~40% free / ~90% paid | unknown | large | free data cannot see the delisted; point-in-time data (Norgate, Sharadar) would settle it |
+| 10 | **0m** — smart-money gauge | ~50% | ~10% | none | running; judge on live readings in 6-12 months |
+| 11 | **9** — TSLA-style "drop a decayed name" rule | ~60% | ~10% | small | production-universe question; less relevant once Track J's pool is screened per date |
+| — | **3, 4** — recalibrate the health monitor | — | — | — | not actionable for years (needs point-in-time history) |
+| — | **5** — no new monitors | — | — | — | standing decision |
+
+**Closed or superseded, marked in place:** 0b (Track I: equal weight wins),
+0c (Track J runs on the wide pool with per-name costs; delisting is 0d/6),
+0f (score switching closed), 0g (holding wins in every state), 0h #1 (phase —
+tranching), 0h #2 (level floor dropped), 0h #4 (correlation cap now absolute
+0.70 every rebalance), 0i (tranching built), 1 (production's overlay retires
+with production on 2026-09-30).
+
+The research that can move returns is concentrated in one place: **0n**, and
+the family of "why did it pull back?" ideas around it. Everything else ranked
+above it is bookkeeping, correctness or honesty — cheap, near-certain, and the
+right thing to do while Track J goes live.
+
+---
+
+
 Opened 2026-09-03. Each item states what to measure and what would count as an
 answer, so it can be picked up cold. Nothing here is urgent; the model is
 operating normally.
@@ -213,14 +251,16 @@ written down before go-live rather than diagnosed after.
 
 ### High — would change the book, silently
 
-1. **Rotation phase is worth MORE at `hold=42`, not less.** FINDINGS records
+1. ~~**Rotation phase is worth MORE at `hold=42`, not less.**~~ **RESOLVED** by k=4
+   tranches (0i/0k): phase spread 11.62pp -> 2.53pp. FINDINGS records
    that phase is worth ~3.2pp of CAGR at `hold=14`. Going to 42 means six
    rebalances a year instead of eighteen, so *which* 42-day cycle you happen to
    start on matters more, not less. The backtest reports one phase. **Re-run the
    phase sensitivity at `hold=42` before go-live** — this is the one most likely
    to make live results diverge from backtest for a reason nobody suspects.
 
-2. **The eligibility floor still reads the OLD composite.** `min_level_threshold`
+2. ~~**The eligibility floor still reads the OLD composite.**~~ **RESOLVED**: the
+   level floor was dropped (MODEL_TRACK_J). `min_level_threshold`
    is applied to `base_scores`, which is the production composite. That was
    correct for the comparison — both arms had to face an identical pool — but
    shipping `flip_neg` while keeping a floor derived from a score we have just
@@ -235,7 +275,8 @@ written down before go-live rather than diagnosed after.
    ties reach the top 8, and break them on something defensible.
 
 4. ~~**The correlation filter is untested at this book size and pool size.**~~
-   **ANSWERED 2026-09-20**, `scripts/analyze_book_correlation.py`. Keep the
+   **SUPERSEDED**: the cap became absolute 0.70 every rebalance (FINDINGS).
+   Original answer: **ANSWERED 2026-09-20**, `scripts/analyze_book_correlation.py`. Keep the
    inherited `apply_above_vix=25.0` gating: off is worse on everything
    (18.84% / 0.54 against 20.93% / 0.64), and always-on costs 1.5pp of CAGR to
    buy 1pp of drawdown with Sharpe unchanged (0.64 -> 0.65). The filter
@@ -296,7 +337,7 @@ trade; the rest can be triaged after.
 
 ---
 
-## 0i. Two ways to stop betting on a single rotation phase
+## 0i. Two ways to stop betting on a single rotation phase — DONE (k=4 tranches, 0k; exits decided in 0g)
 
 **Added 2026-09-20.** The phase test found the new score's CAGR spans 13.16% to
 23.35% across rebalance offsets — a **10.19pp** spread at `hold=42`, against
@@ -692,7 +733,7 @@ multiple-comparisons caution as 0m (TODO 7).
 
 ---
 
-## 0g. A sell-side framework — volatility-guided trailing stop
+## 0g. A sell-side framework — volatility-guided trailing stop — DECIDED (holding wins in every state measured)
 
 **Added 2026-09-20 at James's request.** Everything in this repo is entry-side:
 the model ranks, buys the top N, and holds until the clock says rotate. There
@@ -881,7 +922,7 @@ against any de-risking rule.
 
 ---
 
-## 0f. Would switching between the two scores add anything?
+## 0f. Would switching between the two scores add anything? — CLOSED (it does not work; MODEL_TRACK_J)
 
 **Added 2026-09-20.** `pullback` and `flip_neg` win in different subperiods,
 which invites a rule that picks between them at each rebalance.
@@ -901,7 +942,7 @@ already handles it — try that before any switching machinery.
 
 ---
 
-## 0c. Does the Track J signal survive outside the mega-caps it is absent from?
+## 0c. Does the Track J signal survive outside the mega-caps it is absent from? — SUPERSEDED (Track J adopted the wide pool; delisting is 0d / 6)
 
 **Added 2026-09-20**, out of FINDINGS Track J. The only ranker this repo has
 measured that clears |t| = 2 is `rank(12-1 month) - rank(3-month)` — buy strong
@@ -937,7 +978,7 @@ the universe alone — which is the current state.
 
 ---
 
-## 0b. Position sizing — the one dimension never tested
+## 0b. Position sizing — the one dimension never tested — ANSWERED (Track I: no scheme beats equal weight)
 
 **Raised 2026-09-17.** Every experiment in the record varies *what* to hold
 (universe, ranking, offset) or *when* to hold it (hold days, exits, regime
@@ -1041,7 +1082,7 @@ none of this. Belongs with item 2.
 
 ---
 
-## 1. Defensive posture — is it held too long, and what does it cost?
+## 1. Defensive posture — is it held too long, and what does it cost? — MOOT once production retires (2026-09-30)
 
 **Raised 2026-09-03.** The regime overlay puts SHY/TLT/IAU in the book, and
 momentum picks SH outright in a downturn. Across the record the book holds at
