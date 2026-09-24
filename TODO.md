@@ -1,39 +1,40 @@
 # TODO — open work, roughly in order of expected value
 
-## PRIORITIES — re-ranked 2026-09-24 by probability of success
+## PRIORITIES — re-ranked 2026-09-24, then decided with James
 
-James: "Feels like we are plateauing." Every open item, ranked by the chance it
-produces a usable answer (P answer) and, separately, the chance it improves
-returns (P gain) — they differ, and a certain answer that improves nothing is
-still worth having when it is cheap. Estimates are judgement, not measurement.
+### NEXT: 0n, "why did it pull back?" — in a new chat, once Track J has live data
 
-| rank | item | P answer | P gain | cost | why |
-|---|---|---|---|---|---|
-| 1 | **0h #3, #5, #6** — ties, restated closes in `range_pos`, per-name staleness | ~95% | low | small | Track J graduates on 9/30; correctness before return |
-| 2 | **2** — reconcile the account against Track J around 11/24 | ~90% | high | small | the largest number in this file was the book not being followed |
-| 3 | **8** — factor attribution | ~90% | none | small | unblocked: the Ken French data is now in the repo (Track K) |
-| 4 | **7** — deflated Sharpe | ~85% | none | small | a tally and a formula; the honest haircut on every headline |
-| 5 | **0n** — why did it pull back? shock vs noise | ~70% | ~30-40% | medium | literature-backed (see below); needs only gaps and volume already in the panel |
-| 6 | **9** — drawdown measures that aggregate episodes | ~90% | none | small | many findings turn on one max-drawdown number |
-| 7 | **0e** — sector cap / drawdown-aware book | ~70% | ~15% | medium | the worst books were 100% one sector; prior against de-risking (Track A) |
-| 8 | **0l** — Track K: persist-2, netting the overlap | ~60% | ~20% | small | decide after live episodes, from the decision log |
-| 9 | **6** — survivorship, frozen-vintage universe | ~40% free / ~90% paid | unknown | large | free data cannot see the delisted; point-in-time data (Norgate, Sharadar) would settle it |
-| 10 | **0m** — smart-money gauge | ~50% | ~10% | none | running; judge on live readings in 6-12 months |
-| 11 | **9** — TSLA-style "drop a decayed name" rule | ~60% | ~10% | small | production-universe question; less relevant once Track J's pool is screened per date |
-| — | **3, 4** — recalibrate the health monitor | — | — | — | not actionable for years (needs point-in-time history) |
-| — | **5** — no new monitors | — | — | — | standing decision |
+The one place research can move returns. Specified in 0n below: four
+pre-registered conditionings of Track J's pullback, all built from data already
+in the panel. Not started today, deliberately: James wants Track J running live
+first.
 
-**Closed or superseded, marked in place:** 0b (Track I: equal weight wins),
-0c (Track J runs on the wide pool with per-name costs; delisting is 0d/6),
-0f (score switching closed), 0g (holding wins in every state), 0h #1 (phase —
-tranching), 0h #2 (level floor dropped), 0h #4 (correlation cap now absolute
-0.70 every rebalance), 0i (tranching built), 1 (production's overlay retires
-with production on 2026-09-30).
+### On hold — kept, not scheduled
 
-The research that can move returns is concentrated in one place: **0n**, and
-the family of "why did it pull back?" ideas around it. Everything else ranked
-above it is bookkeeping, correctness or honesty — cheap, near-certain, and the
-right thing to do while Track J goes live.
+| item | what it is | why on hold |
+|---|---|---|
+| **0h #5, #6** | restated adjusted closes in `range_pos`; per-name staleness | correctness polish; small |
+| **8** — factor attribution | regress Track J's returns on published factors (market, size, value, momentum, profitability, short-term reversal) to see how much is known factor exposure and how much is left over | adds no return; diagnostic only — engage if knowing the exposure would change a decision |
+| **7** — deflated Sharpe | discount Track J's backtest Sharpe for how many variants were tried on one history (Bailey & Lopez de Prado); gives P(true Sharpe > 0) | adds no return; calibration of how far to trust the backtest |
+| **9** — drawdown measures | Ulcer index, mean of the worst k drawdowns, instead of one max-drawdown number | honesty item; small |
+| **0e** — sector cap | the worst books were 100% one sector | prior against de-risking (Track A) |
+| **0l** — Track K persist-2, netting the overlap | decide from the decision log after live episodes | needs live data |
+| **6** — survivorship | frozen-vintage universe; settled only by paid point-in-time data | large; free data cannot see the delisted |
+| **3, 4** — health-monitor recalibration | | not actionable for years |
+| **5** — no new monitors | | standing decision |
+
+### Closed 2026-09-24
+
+- **0h #3, ties** — measured: exact ties in the top 20 on 7 of 410 rotation
+  dates, **none** at the 8th/9th cut, the only place order decides membership.
+  They are genuine coincidences (names at their 52-week high with equal rank
+  differences), not a defect.
+- **2, account reconciliation** — James: no longer relevant. The drift it chased
+  was explained by universe screen updates changing the book, and secondarily by
+  execution; neither applies to Track J's per-date screened pool.
+- **9, the TSLA rule** — irrelevant with the wide, per-date screened pool.
+- **0m, smart money** — complete: an informational gauge, not a model input.
+- Earlier: 0b, 0c, 0f, 0g, 0h #1/#2/#4, 0i, 1 (marked in place).
 
 ---
 
@@ -268,7 +269,9 @@ written down before go-live rather than diagnosed after.
    or re-derive it from the new score. Note stage one measured the floor as
    near-inert (650.5 vs 652.2 eligible names), so dropping it is probably free.
 
-3. **Tie-breaking is arbitrary and `flip` is built from ranks.** `flip` is a
+3. ~~**Tie-breaking is arbitrary and `flip` is built from ranks.**~~ **MEASURED
+   2026-09-24, negligible**: 7 of 410 rotation dates have any exact tie in the top
+   20, none at the 8th/9th cut. `flip` is a
    difference of two cross-sectional rank panels, so exact ties are genuinely
    possible rather than measure-zero. `rank(method="first")` then breaks them by
    column order, i.e. effectively by ticker alphabetically. Quantify how often
@@ -611,7 +614,7 @@ exempted SHY/TLT/IAU from the correlation filter where the rotation does not.
 
 ---
 
-## 0m. A "smart money" signal — is any of it measurable, and does it add to the models?
+## 0m. A "smart money" signal — is any of it measurable, and does it add to the models? — COMPLETE (a gauge, not an input)
 
 **Added 2026-09-24 at James's request.** Money flows look sensitive to what
 informed participants do, but "smart money" is usually folklore with a chart
@@ -715,6 +718,26 @@ trades: the pullback term is a short-horizon reversal, and it resolves in weeks
   prescient in a backtest and does not exist live. Only one-sided (causal)
   estimates are admissible, and every candidate gets the truncation test this
   repo applies to signals (`tests/test_reversal.py`).
+
+### NEXT TRACK — the specification (agreed 2026-09-24; run once Track J has live data)
+
+Four pre-registered conditionings of Track J's pullback, each answering "why
+did it pull back?". All use only the panel's open, close, volume and sector
+data. Each is judged the way Track J was validated: does it raise the
+pullback score's information coefficient on the wide pool, **conditional on the
+existing score**, stable in both halves of 2012-2026, and then does it improve
+the Track J portfolio (CAGR first, Sharpe no worse).
+
+| # | conditioning | the reported mechanism | proxy from the panel |
+|---|---|---|---|
+| 1 | **news vs no news** | after big moves *with* news, prices tend to drift on; *without* news they tend to reverse (Chan, 2003) | a large overnight gap plus a volume spike marks a news-driven pullback |
+| 2 | **volume-confirmed** | low-volume declines tend to revert; high-volume ones carry information and continue (Conrad, Hameed & Niden 1994; Gervais, Kaniel & Mingelgrin 2001) | the pullback's volume relative to the name's own trailing volume |
+| 3 | **stock-specific vs sector-wide** | reversal is much stronger on a stock's own (residual) move than on its raw move (Da, Liu & Schaumburg 2014); sector-wide moves behave like sector momentum | the pullback net of sector and market returns |
+| 4 | **overnight vs intraday** | momentum tends to accrue overnight and reversal intraday (Lou, Polk & Skouras 2019) | split the pullback's return into close-to-open and open-to-close |
+
+Four candidates keeps the multiple-comparisons load small (item 7). #1 is
+James's "warning against trading into shocks"; #3 could sharpen the signal
+itself rather than filter it.
 
 ### The most promising concrete hypothesis
 
@@ -1064,7 +1087,8 @@ return decays or held precisely because it has.
 > specifically, because that is a decayed five-year return, which is the long
 > leg going bad rather than a short-leg pullback.
 
-**A candidate mechanical rule, from the TSLA case.** TSLA contributed +0.401 over
+**~~A candidate mechanical rule, from the TSLA case.~~** RETIRED 2026-09-24: irrelevant with
+the wide, per-date screened pool. TSLA contributed +0.401 over
 2012-2021 and -0.011 over 2022-2026 across 96 position-days. "Drop a name whose
 contribution over the trailing N years is below X" would be mechanical, testable,
 and appears to encode what judgment did here. It is the first piece of the
@@ -1153,7 +1177,7 @@ would be a parallel path used only for this diagnostic.
 
 ---
 
-## 2. Live-vs-simulated reconciliation
+## 2. Live-vs-simulated reconciliation — CLOSED 2026-09-24 (James: the drift was the universe screen and execution; neither applies to Track J)
 
 **The health monitor's blind spot.** It scores the simulated return stream —
 next-open fills, 7.5 bps slippage — not the actual account. If real execution
