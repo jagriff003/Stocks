@@ -2350,6 +2350,20 @@ decision log records it.
 
 ---
 
+## Account notional reduced to $100,000 (2026-09-24)
+
+The cost model sizes each order as the assumed account divided by the number
+of positions, and its market-impact term grows with the square root of order
+size. The default notional was lowered on 2026-09-24; **every cost-model result
+recorded before that date used a larger one.** The effect is small and
+one-directional — smaller orders pay slightly less impact. Track J over TODO
+0k's window (2011-10-19 to 2026-09-18) moves from 20.81% CAGR / 0.727 Sharpe /
+-42.99% max drawdown as recorded to **20.91% / 0.731 / -42.93%** now. Deltas
+between arms, which is what every finding here rests on, are unaffected in
+sign and essentially in size.
+
+---
+
 ## Open questions
 
 1. **`velocity_window=5` is an in-sample choice.** Walk-forward proved re-tuning
