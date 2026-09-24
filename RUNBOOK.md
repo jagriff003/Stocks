@@ -1,5 +1,39 @@
 # Runbook — operating the models
 
+## TL;DR — every run, in order
+
+Rotation Tuesdays (09-29, 10-13, 10-27, …), after 16:15 ET.
+PowerShell:
+
+```powershell
+# 0. setup, once per terminal
+cd C:\Users\USER\OneDrive\Analytics\Stocks
+$py = ".\.venv-1\Scripts\python.exe"
+
+# 1. production (the traded model until Track J graduates)
+& $py scripts\run_live.py
+
+# 2. Track J: fresh prices, saves charts
+& $py scripts\run_live_trackj.py --no-cache --save-charts charts
+
+# 3. Track J + Track K together: allocation, charts, logs the recommendation
+& $py scripts\run_live_combined.py
+```
+
+4. **Check:** every `Signal session` / last-session date is **today**, and each
+   script exited 0. If not, see part 5.
+5. **Decide** (part 4 if Track K is FIRING). **Trade at Wednesday's open.**
+6. **Record and commit:**
+
+```powershell
+& $py scripts\record_decision.py --action "what you did" --note "why"
+git add snapshots data/decisions data/market; git commit -m "Rotation YYYY-MM-DD"
+```
+
+Off-cycle days: steps 0, 2, 3 only. Nothing to trade: CURRENT is information.
+
+---
+
 For James, at the keyboard. Parts 1–4 are the routine and the decisions; part 5
 is what to do when something looks wrong; part 6 is reference. The evidence
 behind every statement here is in FINDINGS.md — this file says what to do, not
