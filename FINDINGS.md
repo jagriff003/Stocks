@@ -2364,6 +2364,35 @@ sign and essentially in size.
 
 ---
 
+## When a Track J sleeve earns: weeks 3-8, not the first two
+
+**Measured 2026-09-24.** `scripts/analyze_sleeve_age.py`, asked while choosing
+how to move from the production model to Track J. Each sleeve simulated exactly
+as the live runner does, both biweekly phases, 2012-2026; every day tagged with
+the sleeve's age since selection.
+
+| sleeve age | excess over SPY, annualized | t | share of total excess |
+|---|---|---|---|
+| weeks 1-2 | +2.0% | 0.64 | 8% |
+| weeks 3-4 | +8.4% | 2.75 | 35% |
+| weeks 5-6 | +7.6% | 2.52 | 32% |
+| weeks 7-8 | +6.8% | 1.95 | 21% |
+
+Weeks 1-2 are the weakest at both phases (+3.9% / +0.1%) and in both halves of
+the sample (2012-18: -4.6% against -3.5..+0.5% later; 2019-26: +8.0% against
++15.6..+16.4%). It fits the signal: it buys a pullback, and the pullback takes
+weeks to resolve. Weeks 7-8 have fewer days because holidays shorten some
+eight-week holds below 40 sessions.
+
+**Consequences.** Entering an existing sleeve mid-hold buys its productive
+weeks, so a fast move onto the full aligned book is not penalised by timing —
+the case against it is model risk, not timing. Unwinding a sleeve early (at
+week 4) sells the half of its hold that carries half its excess. And a fresh
+sleeve's first fortnight is expected to be dull: do not judge a sleeve, or the
+model, by it.
+
+---
+
 ## Open questions
 
 1. **`velocity_window=5` is an in-sample choice.** Walk-forward proved re-tuning
