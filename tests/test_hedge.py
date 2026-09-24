@@ -284,3 +284,15 @@ def test_regime_persistence_counts_decisions_both_ways():
     p2r2 = on(replace(base, regime_persist=2, regime_release=2))
     # ...and with release=2, one quiet decision is not enough to close
     np.testing.assert_array_equal(p2r2[:12], [0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0])
+
+
+def test_external_regime_gate_reproduces_and_overrides_the_trigger():
+    from momentum.hedge import regime_open
+    stock, assets = panel(seed=23)
+    cfg = HedgeConfig(regime_assets=("GOLD", "CMDTY"), regime_min=1, regime_corr_asset="UST10",
+                      regime_corr_above=-0.5, corr_window=24)
+    base = hedge_weights(stock, assets, cfg)
+    same = hedge_weights(stock, assets, cfg, regime_gate=regime_open(stock, assets, cfg))
+    pd.testing.assert_frame_equal(base, same)
+    shut = hedge_weights(stock, assets, cfg, regime_gate=np.zeros(len(stock), dtype=bool))
+    assert shut.drop(columns="STOCKS").sum().sum() == 0

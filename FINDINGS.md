@@ -53,6 +53,7 @@ metrics and is subperiod-consistent.
 | Track K option (a) — regime trigger + combined report | **adopted as discretionary input** | fires 3% of months outside inflation episodes, in 1973-74/1977-81/2021-22 (late), misses 1946-48; obeyed on Track J -0.3 to -0.7pp; firing 2026-09 |
 | Track K trigger timing — lateness and flicker | **characterised, config unchanged** | early in 1973/1977, late in 2021-22; persist-2 halves flicker at no cost, shown as a streak in the report |
 | Smart money, first pass (CFTC S&P and commodity positioning, DIX) | **one fragile PASS, wrong sign; one lead** | asset managers adding preceded weaker Track J (t -2.2, rests on 2020); hedge funds adding preceded stronger (t +1.7); commodity crowding and DIX null |
+| Smart money into Track K timing (Confirm / Early / Both) | **no improvement; stays a gauge** | gating fires Track K less, not better; the unseen 2008-11 window has no firings; persist-2 beats every gate |
 
 Live model: **19.84% CAGR, 0.91 Sharpe, -19.23% max drawdown, Calmar 1.03**,
 net of realistic fills and costs. The honest like-for-like starting point was
@@ -2448,6 +2449,52 @@ Two reached 1.5. That is consistent with one real effect or with none.
 combined report as an informational gauge (where each sits in its own history,
 and what it has preceded), as agreed. By the pre-registered rule the PASS may
 go on to the Track K timing test; given points 1-2, that is James's call.
+
+---
+
+## Smart money into Track K's timing: gating fires it less, not better — and a simpler rule does that already
+
+**Measured 2026-09-24.** `scripts/analyze_smart_money_trackk.py`. James: take
+both S&P positioning flows — the asset-manager PASS (backwards) and the
+leveraged-fund LEAD — to the Track K timing test. Lonely score = z(asset-manager
+flow) - z(leveraged-fund flow), each against its own trailing three years,
+CFTC data 7+ days old. Variants fixed before the run: **Confirm** (fire only if
+also lonely > 0), **Early** (also fire on 1 of 4 assets if lonely > 1), **Both**,
+and Both with each flow alone. Checks pass: the external gate reproduces the
+live trigger exactly; Confirm fires on a subset and Early on a superset of the
+baseline's rotations; every CFTC value used is 7+ days old.
+
+**Primary — obeyed on Track J, 2012-2026** (CAGR delta vs Track J; phase A / B):
+
+| variant | dCAGR | firings | flips/yr | held basket vs SPY, next 63d | 2021-22 | 2025-26 |
+|---|---|---|---|---|---|---|
+| baseline (live) | -0.3 / -0.7pp | 14 / 15 | 1.29 / 1.08 | -4.3 / -7.3% | -8.1 / -0.8% | +3.6 / -2.5% |
+| Confirm | -0.5 / -0.3pp | 5 / 4 | 0.68 / 0.41 | -3.3 / -6.9% | -2.9 / 0.0% | -4.8 / 0.0% |
+| Early | -0.5 / -0.9pp | 16 / 17 | 1.29 / 0.95 | -3.6 / -6.9% | -8.1 / -0.8% | +3.6 / -2.5% |
+| Both | -0.6 / -0.4pp | 7 / 6 | 0.68 / 0.27 | -2.0 / -6.0% | -2.9 / 0.0% | -4.8 / 0.0% |
+| Both, asset managers only | -0.4 / -0.3pp | 13 / 13 | 0.95 / 0.68 | -4.8 / -6.8% | -2.9 / 0.0% | -4.8 / +5.3% |
+| Both, leveraged funds only | -0.5 / 0.0pp | 2 / 0 | 0.27 / 0.00 | +0.2% / — | -2.9 / 0.0% | 0.0 / 0.0% |
+
+**No variant meets the bar** (no more costly than the baseline at both phases,
+Sharpe no worse, better basket). Confirm halves the flicker and softens
+2021-22, but misses the 2025-26 run at phase A. Early costs more at both:
+firing more often costs more.
+
+**Secondary — the French top-momentum decile, 2008-2026:** every gated variant
+costs less than the baseline at both phases (e.g. Confirm -0.5 / -0.4pp against
+-1.1 / -1.7pp). But the mechanism is firing less, not firing better: the held
+basket still trails SPY by 2-7% over the next quarter in almost every variant.
+**The out-of-sample window (2008-2011, unseen by the signal selection) contains
+no firings in any variant**: the stock-bond correlation was negative through the
+GFC, a deflationary regime. So there is no out-of-sample evidence either way.
+
+**A simpler rule already does this better.** Fewer firings is what the flicker
+study's persist-2 rule delivers: -0.2 / +0.5pp on Track J, better than every
+smart-money gate here, with no CFTC data.
+
+**Decision:** the flows stay an informational gauge in the combined report and
+do not enter the trigger. If Track K ever gets a "fire less" rule, persist-2 is
+the candidate, not smart money.
 
 ---
 

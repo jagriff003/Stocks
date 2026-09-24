@@ -616,9 +616,12 @@ weaker Track J) and rests on 2020; leveraged-fund flow is a LEAD in the
 hypothesis's direction and survives without 2020; commodity crowding and DIX
 are null. Shown in the combined report as an informational gauge. Open:
 
-- **The Track K timing test for the PASS** — pre-registered to follow a PASS;
-  James's call given it is fragile and backwards.
-- **Insider buying, second pass.** Correction to the first-pass framing: Form 4s
+- ~~**The Track K timing test**~~ — RUN 2026-09-24 with both flows (James):
+  no variant improves the timing; gating makes Track K fire less, not better,
+  and persist-2 does that better without CFTC data. The flows stay a gauge.
+  (FINDINGS, "Smart money into Track K's timing".)
+- **Insider buying, second pass — SKIPPED by James (2026-09-24): too heavy a lift.**
+  For the record: Form 4s
   are timely (filed within two business days); only the free bulk history is
   packaged quarterly. Backfill from the quarterly files using the filing date,
   and a live signal from EDGAR's daily feed.

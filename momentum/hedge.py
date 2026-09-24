@@ -200,7 +200,8 @@ def regime_open(stock: pd.Series, assets: pd.DataFrame, cfg: HedgeConfig,
 
 def hedge_weights(stock: pd.Series, assets: pd.DataFrame,
                   config: HedgeConfig,
-                  decide_at: Optional[Sequence[pd.Timestamp]] = None) -> pd.DataFrame:
+                  decide_at: Optional[Sequence[pd.Timestamp]] = None,
+                  regime_gate: Optional[Sequence[bool]] = None) -> pd.DataFrame:
     """
     Target weights decided at each row, columns STOCKS plus every asset.
     Row t uses data through t only and is meant to earn row t+1.
@@ -208,6 +209,11 @@ def hedge_weights(stock: pd.Series, assets: pd.DataFrame,
     `decide_at`, when given, replaces the positional `decide_every` cadence
     with explicit decision dates — Track J's rotation Tuesdays, which drift
     around holidays and so are not every N sessions.
+
+    `regime_gate`, when given, REPLACES the configured regime trigger with an
+    externally computed one (aligned to `stock.index`).  Built for the smart-
+    money timing test, which confirms or relaxes the trigger with CFTC flows.
+    Passing the live trigger's own `regime_open` reproduces the default path.
     """
     cfg = config
     names = list(assets.columns)
@@ -228,7 +234,13 @@ def hedge_weights(stock: pd.Series, assets: pd.DataFrame,
         open_slots = (d_stock < d_cash - cfg.danger_margin).values
     else:
         open_slots = np.ones(len(stock), dtype=bool)
-    open_slots = open_slots & regime_open(stock, assets, cfg, tr, tr_stock)
+    if regime_gate is not None:
+        gate = np.asarray(regime_gate, dtype=bool)
+        if len(gate) != len(stock):
+            raise ValueError("regime_gate must align with the stock index")
+        open_slots = open_slots & gate
+    else:
+        open_slots = open_slots & regime_open(stock, assets, cfg, tr, tr_stock)
     gated = pd.DataFrame(False, index=assets.index, columns=names)
     if cfg.corr_gate is not None:
         for a in cfg.duration_assets:

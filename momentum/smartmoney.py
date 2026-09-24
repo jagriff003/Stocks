@@ -122,6 +122,24 @@ def cftc_signals(pos: pd.DataFrame, flow_weeks: int = 13, crowd_weeks: int = 156
     return pd.DataFrame(out)
 
 
+def flow_z(pos: pd.DataFrame, flow_weeks: int = 13, window: int = 156) -> pd.DataFrame:
+    """13-week change in net %OI, z-scored against its own trailing 3 years only."""
+    flow = pos - pos.shift(flow_weeks)
+    return (flow - flow.rolling(window, min_periods=window // 2).mean()) / \
+        flow.rolling(window, min_periods=window // 2).std()
+
+
+def lonely_score(pos: pd.DataFrame) -> pd.DataFrame:
+    """
+    Oriented so HIGHER = lonelier for the stock book, per the first pass:
+    asset managers adding preceded weaker Track J, leveraged funds adding
+    preceded stronger.  Point-in-time: rolling z only.
+    """
+    z = flow_z(pos[["asset_mgr_net", "lev_money_net"]])
+    return pd.DataFrame({"am": z["asset_mgr_net"], "lev": -z["lev_money_net"],
+                         "combined": z["asset_mgr_net"] - z["lev_money_net"]})
+
+
 def dix_signal(d: pd.DataFrame, smooth: int = 20, window: int = 252) -> pd.Series:
     """20-session mean DIX, z-scored against its trailing year (daily calendar)."""
     m = d["dix"].rolling(smooth, min_periods=smooth).mean()
