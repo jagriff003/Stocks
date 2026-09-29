@@ -49,8 +49,27 @@ SIGNAL_SYMBOL = {i.role: i.backtest for i in INSTRUMENTS}
 LIVE_SYMBOL = {i.role: i.live for i in INSTRUMENTS}
 
 
+def stale_signals(store: pd.DataFrame) -> Dict[str, pd.Timestamp]:
+    """Signal symbols whose history ends before SPY's, with where they end."""
+    ref_last = store[REFERENCE].last_valid_index()
+    out = {}
+    for sym in sorted(set(SIGNAL_SYMBOL.values())):
+        last = store[sym].last_valid_index() if sym in store else None
+        if last is None or last < ref_last:
+            out[sym] = last
+    return out
+
+
 def assets_from_store(store: pd.DataFrame) -> pd.DataFrame:
-    """Role-named daily returns on SPY's calendar, gaps after listing as 0."""
+    """
+    Role-named daily returns on SPY's calendar, gaps inside a history as 0.
+    Refuses a store whose signal symbols end before SPY: filling that trailing
+    edge with 0 made nine symbols read flat for four sessions (2026-09-29).
+    """
+    stale = stale_signals(store)
+    if stale:
+        raise ValueError("Track K inputs end before " + REFERENCE + ": " + ", ".join(
+            f"{s} {d:%Y-%m-%d}" if d is not None else f"{s} (none)" for s, d in stale.items()))
     cal = store[REFERENCE].dropna().index
     a = pd.DataFrame({role: store[sym] for role, sym in SIGNAL_SYMBOL.items()}).reindex(cal)
     for c in a.columns:

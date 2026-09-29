@@ -143,12 +143,47 @@ def test_a_yahoo_hole_is_carried_flat_and_the_move_is_kept(tmp_path):
     assert stored.at[hole, "IAU"] == 0.0
     two_day = (1 + fake.rets.loc[fake.idx[-2:], "IAU"]).prod() - 1
     assert np.isclose(stored.at[fake.idx[-1], "IAU"], two_day)
-    # Yahoo later posts the real bar: a revision, refused until accepted
-    rep, status = build(tmp_path, fake)
-    assert "REVISION REFUSED" in rep.at["IAU", "status"]
-    build(tmp_path, fake, accept_revisions=True)
+    # Yahoo later posts the real bar, and the next session: the fill resolves
+    # without asking and the symbol keeps up with SPY (2026-09-29: it froze)
+    fake.rets.loc[pd.Timestamp("2026-04-01")] = [0.001, 0.002]
+    fake.idx = fake.rets.index
+    fake.last = pd.Timestamp("2026-04-01")
+    rep, status = ms.update_daily(["SPY", "IAU"], store_dir=tmp_path, fetch=fake,
+                                  now_et=datetime(2026, 4, 1, 18, 0))
+    assert status == 0 and rep.at["IAU", "status"] == "FILL RESOLVED", rep
     stored = ms.load_daily_returns(store_dir=tmp_path)
     assert np.isclose(stored.at[hole, "IAU"], fake.rets.at[hole, "IAU"])
+    assert np.isclose(stored.at[fake.idx[-2], "IAU"], fake.rets.at[fake.idx[-2], "IAU"])
+    assert stored["IAU"].last_valid_index() == stored["SPY"].last_valid_index()
+
+
+def test_a_dividend_landing_in_a_filled_span_is_still_refused(tmp_path):
+    fake = FakeYahoo()
+    hole = fake.idx[-2]
+
+    def holed(symbols, start):
+        px = fake(symbols, start)
+        if "IAU" in px:
+            px.loc[hole, "IAU"] = np.nan
+        return px
+
+    build(tmp_path, holed)
+    fake.rets.loc[fake.idx[-1], "IAU"] += 0.008      # VNQ, 2026-09-23: posted late
+    rep, status = build(tmp_path, fake)
+    assert status == 2 and "REVISION REFUSED" in rep.at["IAU", "status"]
+
+
+def test_fill_resolution_needs_a_flat_day_and_the_same_compounded_move():
+    idx = pd.bdate_range("2026-01-05", periods=5)
+    old = pd.Series([0.01, 0.0, 0.0, 0.03, 0.01], index=idx)
+    new = old.copy()
+    new.iloc[1:4] = [0.01, 0.01, (1.03 / 1.01 ** 2) - 1]      # two-day hole, same move
+    assert ms._fill_resolution(old, new, idx[1:4])
+    new.iloc[3] += 0.001
+    assert not ms._fill_resolution(old, new, idx[1:4])        # move changed
+    moved = old.copy()
+    moved.iloc[0] = 0.02
+    assert not ms._fill_resolution(old, moved, idx[:1])       # not a flat day
 
 
 def test_a_missing_last_bar_is_stale_not_flat(tmp_path):

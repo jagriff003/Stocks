@@ -35,8 +35,13 @@ WHAT AN UPDATE CHECKS (and the run's exit status reports — RUNBOOK convention)
              fill the next day's return cannot be computed and the move across
              the hole is lost for good.  Holes of up to `MAX_FILL` sessions are
              carried at the last price (0% that day, the whole move the next)
-             and flagged FILLED; if Yahoo later posts the real bar, the overlap
-             check sees it as a revision and asks.
+             and flagged FILLED.  When Yahoo later posts the real bar, the
+             overlap sees a revision that only splits the same move across the
+             flat day and the session after it: that is accepted without
+             asking and flagged FILL RESOLVED.  Refusing it froze nine symbols
+             at 2026-09-23 while SPY moved on (found 2026-09-29).  A revision
+             that changes the compounded move across the span — a late
+             dividend landing in it, as VNQ's did — is still refused.
 
 `verify_full_history` re-fetches everything and compares the whole store
 without writing: a monthly audit for revisions older than the overlap window.
@@ -169,6 +174,33 @@ def _returns_on_calendar(px: pd.Series, calendar: pd.DatetimeIndex) -> Tuple[pd.
     return r.dropna(), filled
 
 
+def _fill_resolution(old: pd.Series, new: pd.Series, revised: pd.DatetimeIndex) -> bool:
+    """
+    True when every revised date lies in a span of flat (0.0) stored days plus
+    the session after them, and each span compounds to the same move stored
+    and fetched: Yahoo posted a bar the store had carried flat, nothing else.
+    """
+    spans = []
+    for p in sorted(old.index.get_indexer(revised)):
+        if spans and p <= spans[-1][1]:
+            continue
+        if p < 0 or old.iat[p] != 0.0:
+            return False
+        q = p
+        while q + 1 < len(old) and old.iat[q + 1] == 0.0:
+            q += 1
+        if q + 1 >= len(old):
+            return False                  # nothing after the flat run absorbed the move
+        spans.append((p, q + 1))
+    for a, b in spans:
+        days = old.index[a:b + 1]
+        if not days.isin(new.index).all():
+            return False
+        if abs((1 + old.loc[days]).prod() - (1 + new.loc[days]).prod()) > REVISION_TOL:
+            return False
+    return True
+
+
 def _drop_unsettled(px: pd.DataFrame, now_et: datetime) -> pd.DataFrame:
     today = pd.Timestamp(now_et.date())
     if now_et.time() < SETTLE_ET and today in px.index:
@@ -252,12 +284,16 @@ def update_daily(symbols: Optional[Sequence[str]] = None, accept_revisions: bool
             revised = diff[diff > REVISION_TOL]
             if len(revised):
                 detail = ", ".join(f"{d:%Y-%m-%d} {old[d]:+.5f}->{r[d]:+.5f}" for d in revised.index[:3])
-                if not accept_revisions:
+                if _fill_resolution(old, r, revised.index):
+                    flag("FILL RESOLVED", detail)
+                    out.loc[revised.index, s] = r.loc[revised.index]
+                elif not accept_revisions:
                     flag("REVISION REFUSED", detail)
                     report.append(row)
                     continue
-                flag("revision accepted", detail)
-                out.loc[revised.index, s] = r.loc[revised.index]
+                else:
+                    flag("revision accepted", detail)
+                    out.loc[revised.index, s] = r.loc[revised.index]
             fresh = r.loc[r.index > old.index[-1]]
         else:
             fresh = r
@@ -304,7 +340,7 @@ def update_daily(symbols: Optional[Sequence[str]] = None, accept_revisions: bool
         raise RuntimeError("every symbol failed to fetch - nothing written")
     _atomic_write(out, path)
     _append_log(rep.reset_index().to_dict("records"), store_dir)
-    status = 0 if rep["status"].isin(["ok", "revision accepted"]).all() else 2
+    status = 0 if rep["status"].isin(["ok", "revision accepted", "FILL RESOLVED"]).all() else 2
     return rep, status
 
 

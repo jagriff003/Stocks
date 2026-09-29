@@ -84,7 +84,7 @@ from momentum import marketstore as ms  # noqa: E402
 from momentum.schedule import TUESDAY, rotation_dates  # noqa: E402
 from momentum.hedge import regime_open, trailing_return  # noqa: E402
 from momentum.trackk import (LIVE_CONFIG, LIVE_SYMBOL, assets_from_store,  # noqa: E402
-                             combine, recommendations)
+                             combine, recommendations, stale_signals)
 
 BOOK_FILE = REPO_ROOT / "live" / "trackj_book.json"
 LOG_FILE = REPO_ROOT / "data" / "decisions" / "decision_log.csv"
@@ -406,6 +406,15 @@ def main() -> int:
             status = 2
     store = ms.load_daily_returns()
     latest = store[ms.REFERENCE].dropna().index[-1]
+    stale = stale_signals(store)
+    if stale:
+        print(f"\n*** Track K cannot read {latest:%Y-%m-%d}: its inputs end earlier — "
+              + ", ".join(f"{s} {d:%Y-%m-%d}" if d is not None else f"{s} (none)"
+                          for s, d in stale.items()) + ". ***")
+        print("    A REVISION REFUSED above: look at it, then "
+              "`python scripts/update_market_data.py --accept-revisions`.")
+        print("    A late bar (STALE only): re-run this report later.  Nothing logged.")
+        return 1
 
     if not BOOK_FILE.exists():
         print(f"\n*** {BOOK_FILE.relative_to(REPO_ROOT)} missing — run "

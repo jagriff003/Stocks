@@ -74,6 +74,18 @@ def test_record_decision_fills_the_latest_row_and_protects_it(tmp_path):
     assert list(back["action"]) == ["took XLE", "held Track J"]
 
 
+def test_a_stale_signal_symbol_is_refused_not_read_as_flat():
+    import pytest
+    from momentum.trackk import stale_signals
+    store = fake_store()
+    store.loc[store.index[-4]:, "IAU"] = np.nan         # 2026-09-29: IAU froze, SPY did not
+    assert stale_signals(store) == {"IAU": store.index[-5]}
+    with pytest.raises(ValueError, match="IAU"):
+        assets_from_store(store)
+    with pytest.raises(ValueError, match="IAU"):
+        recommendations(store, list(store.index[300::10]))
+
+
 def test_firing_streak_counts_back_from_the_last_decision():
     from momentum.trackk import firing_streak
     store = fake_store()
