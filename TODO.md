@@ -9,6 +9,31 @@ pre-registered conditionings of Track J's pullback, all built from data already
 in the panel. Not started today, deliberately: James wants Track J running live
 first.
 
+### ALSO NEXT (operations): a lean trade day to replace the rebalance workbook
+
+`private/Rebalance.xlsx` is too complicated to run (James, 2026-10-28). Its
+Holdings went stale after 9/30, its 10/13 Trades sheet sat at `Status: CHECK`
+with crossed placements, and the 10/13 sells hit sleeve 2 instead of sleeve 1
+without anything noticing. On 10-28 the workbook was set aside and the
+rotation ran as a conversation, which was quicker:
+
+1. positions per account (symbols, shares where split) → diff against the book
+   → sells, 100% or a sleeve's share of a stacked name;
+2. Track K decision;
+3. cash per account after sells → buys as pooled cash ÷ slots, highest price
+   first, at most one name split across the Roth and the Traditional.
+
+Build that as a script, plus the tracking the workbook was meant to give:
+
+- [ ] a positions file per account (private, dated), updated from the fills, so
+      step 1 is a check rather than a reconstruction;
+- [ ] a hard check that held names == the book after the trade (the 10/13 miss
+      would have failed it);
+- [ ] fills against the modelled price (the 10-28 AXGN fill was +31% over the
+      ranked close), feeding the reconciliation that 0h/health step 1 asks for;
+- [ ] retire or strip the workbook, and update RUNBOOK steps 5–6 and the
+      combined report's workbook fill to match.
+
 ### On hold — kept, not scheduled
 
 | item | what it is | why on hold |

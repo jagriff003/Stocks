@@ -10,8 +10,8 @@ PowerShell:
 cd $env:USERPROFILE\OneDrive\Analytics\Stocks
 $py = ".\.venv-1\Scripts\python.exe"
 
-# 1. production (the traded model until Track J graduates)
-& $py scripts\run_live.py
+## 1. production (the traded model until Track J graduates)
+#& $py scripts\run_live.py
 
 # 2. Track J: fresh prices, saves charts
 & $py scripts\run_live_trackj.py --no-cache --save-charts charts
@@ -124,6 +124,44 @@ Then:
    ```powershell
    git add snapshots data/market; git commit -m "Rotation 2026-09-29"
    ```
+
+### Remotely (Remote Control, e.g. from the UK)
+
+The scripts run on the home PC; you drive the Claude Code session from a phone
+or laptop. Nothing may open a window — `plt.show()` waits forever for someone
+to close it — so use these instead of steps 2–3:
+
+```powershell
+& $py scripts\run_live_trackj.py --no-cache --save-charts charts
+& $py scripts\run_live_combined.py --no-show --no-workbook
+```
+
+Ask Claude to send the `charts\` PNGs to your device. Without the workbook, the
+order of work is:
+
+1. **Send your current positions** (symbols per account, shares where split)
+   **before any sells.** Claude diffs them against the book. On 2026-10-28 this
+   caught that the 10/13 sells had hit sleeve 2 instead of sleeve 1 — assuming
+   adherence would have sold the wrong names a second time.
+2. Claude lists the sells (100%, or the share of a name held by more than one
+   sleeve) and asks for your Track K decision.
+3. After the sells fill, send each account's cash. Claude sizes the buys as
+   pooled cash ÷ slots, highest price first, at most one name split across the
+   Roth and the Traditional.
+
+**Times in the UK.** US clocks change on 1 November, the UK's on 25 October, so
+from November the gap is five hours: run after **21:15 UK** on the rotation
+Tuesday, trade at **14:30 UK** on Wednesday.
+
+**Running a day late** (as on 2026-10-28): pin Track J to the rotation date with
+`--as-of YYYY-MM-DD`, and run the combined report **before 16:15 ET** — the store
+drops the in-progress session until then, so both end on the rotation date.
+After 16:15 ET the store includes the next session and the report exits 2 on the
+date mismatch; its AT THE LAST ROTATION reading is still the one to use.
+
+**Before you leave** (for whoever is at home): PC on and plugged in, sleep and
+hibernate off, Windows Update not scheduled to restart on a rotation day, VS Code
+open with the Claude Code session connected, OneDrive syncing.
 
 ### Other days — optional
 
